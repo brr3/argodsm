@@ -1447,6 +1447,11 @@ bool _is_cached(std::size_t addr) {
 
 /* CSPext: Node rebuild function */
 void redundancy_rebuild(argo::node_id_t dead_node) {
+
+	if (argo_get_nid() == dead_node) {
+		return;
+	}
+
 	size_t rebuilding_offset 
 			= (char *)(&(node_alter_tbl[dead_node].rebuilding)) - (char *)(&(node_alter_tbl[dead_node]));
 	
@@ -1483,17 +1488,27 @@ void redundancy_rebuild(argo::node_id_t dead_node) {
 		temp_tbl.alter_replData = NULL;		// CSP TODO
 		temp_tbl.alter_replDataWindow = MPI_WIN_NULL;	// CSP: Will be updated by each node
 		temp_tbl.refresh_replDataWindow = true;
-		temp_tbl.rebuilding = false;
+
+		printf("----------------------------1488\n");
+
 		for (int i = 0; i < numtasks; ++i) {
-			MPI_Win_lock(MPI_LOCK_EXCLUSIVE, dead_node, 0, node_alter_tbl_window[dead_node]);
+			printf("----i=%d node=%d\n",i,argo_get_nid());
+			MPI_Win_lock(MPI_LOCK_EXCLUSIVE, i, 0, node_alter_tbl_window[dead_node]);
 		}
+
+		printf("----------------------------1494\n");
+
 		for (int i = 0; i < numtasks; ++i) {
-			MPI_Put(&temp_tbl, sizeof(temp_tbl), MPI_CHAR, dead_node, 
-						0, sizeof(temp_tbl), MPI_CHAR, node_alter_tbl_window[dead_node]);
+			if (i != dead_node) {
+				// Don't write to rebuilding variable
+				MPI_Put(&temp_tbl, sizeof(temp_tbl)-2, MPI_CHAR, i, 
+						0, sizeof(temp_tbl)-2, MPI_CHAR, node_alter_tbl_window[dead_node]);
+			}
+			printf("---- put 1505\n");
 		}
 		for (int i = 0; i < numtasks; ++i) {
 			// CSP: Unlock all nodes together so as to "commit" all changes altogether
-			MPI_Win_unlock(dead_node, node_alter_tbl_window[dead_node]);
+			MPI_Win_unlock(i, node_alter_tbl_window[dead_node]);
 		}
 
 		/* CSP: Release the lock */
@@ -1502,10 +1517,12 @@ void redundancy_rebuild(argo::node_id_t dead_node) {
 		MPI_Win_unlock(repl_node, node_alter_tbl_window[repl_node]);
 	} else {
 		/* CSP: Cannot get lock. Just wait until rebuild is done. */
-		while (node_alter_tbl[dead_node].refresh_replDataWindow) {
+		while (!node_alter_tbl[dead_node].refresh_replDataWindow) {
 			/* CSP: Until the rebuilder sets this flag to true (via MPI). */
 		}
 	}
+
+	printf("rebuild complete for node %d\n", argo_get_nid());
 }
 
 /* CSPext: Exposed rebuild function for testing purpose */

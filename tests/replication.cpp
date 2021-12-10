@@ -176,6 +176,8 @@ TEST_F(replicationTest, nodeKillRebuildCR) {
 
 	char copy = *val;
 
+	argo::backend::test_interface_rebuild(0);
+
 	// kill_node(argo_get_homenode(val));
 	// OR:
 	// update_alteration_table(argo_get_homenode(val));
