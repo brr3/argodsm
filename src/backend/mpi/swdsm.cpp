@@ -1504,7 +1504,6 @@ void redundancy_rebuild(argo::node_id_t dead_node) {
 				MPI_Put(&temp_tbl, sizeof(temp_tbl)-2, MPI_CHAR, i, 
 						0, sizeof(temp_tbl)-2, MPI_CHAR, node_alter_tbl_window[dead_node]);
 			}
-			printf("---- put 1505\n");
 		}
 		for (int i = 0; i < numtasks; ++i) {
 			// CSP: Unlock all nodes together so as to "commit" all changes altogether
