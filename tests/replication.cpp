@@ -156,6 +156,47 @@ TEST_F(replicationTest, charEC) {
 	ASSERT_EQ(*val^prev_repl_val, receiver);
 }
 
+TEST_F(replicationTest, arrayEC) {
+	if (argo_number_of_nodes() == 1 || argo::env::replication_policy() != 2) {
+		return;
+	}
+
+	const std::size_t array_size = 10;
+	int* array = argo::conew_array<int>(array_size);
+	int* receiver = new int[array_size];
+	int* prev_val_array = new int[array_size];
+
+	for (std::size_t i = 0; i < array_size; i++) {
+		prev_val_array[i] = 0;
+	}
+
+	argo::backend::get_repl_data((char *) array, prev_val_array, array_size * sizeof(*array));
+	argo::barrier();
+
+	for (std::size_t i = 0; i < array_size; i++) {
+		receiver[i] = 0;
+	}
+
+	if (argo::node_id() == 0) {
+		for (std::size_t i = 0; i < array_size; i++) {
+			array[i] = 1;
+		}
+	}
+	argo::barrier();
+
+	argo::backend::get_repl_data((char *) array, receiver, array_size * sizeof(*array));
+	unsigned long count = 0;
+	unsigned long count2 = 0;
+	for (std::size_t i = 0; i < array_size; i++) {
+		count += receiver[i];
+		count2 += array[i]^prev_val_array[i];
+	}
+	ASSERT_EQ(count, count2);
+
+	delete [] receiver;
+	argo::codelete_array(array);
+}
+
 /**
  * @brief Test that the system can recover from a node going down using complete replication
  */

@@ -911,8 +911,8 @@ void argo_initialize(std::size_t argo_size, std::size_t cache_size){
 	}
 	else if (env::replication_policy() == 2) {
 		// erasure coding (n-1, 1)
-		printf("EASURE CODING\n");
-		size_of_replication = size_of_chunk / (numtasks - 1);
+		printf("EASURE CODING - data fragments: %lu, parity fragments: %lu\n", env::replication_data_fragments(), env::replication_parity_fragments());
+		size_of_replication = size_of_chunk / (env::replication_data_fragments());
 		size_of_replication = ((size_of_replication / pagesize) + 1) * pagesize; // align with pagesize
 	}
 	sig::signal_handler<SIGSEGV>::install_argo_handler(&handler);
