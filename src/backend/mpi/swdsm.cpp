@@ -904,15 +904,16 @@ void argo_initialize(std::size_t argo_size, std::size_t cache_size){
 	GLOBAL_NULL=size_of_all+1;
 	size_of_chunk = argo_size/(numtasks); //part on each node
 	// CSPext
-	if (env::replication_policy() == 0) {
+	repl_policy = env::replication_policy();
+	if (repl_policy == 1) {
 		// complete replication
 		printf("COMPLETE REPLICATION\n");
 		size_of_replication = size_of_chunk;
 	}
-	else if (env::replication_policy() == 1) {
+	else if (repl_policy == 2) {
 		// erasure coding (n-1, 1)
-		printf("EASURE CODING\n");
-		size_of_replication = size_of_chunk / (numtasks - 1);
+		printf("ERASURE CODING - data fragments: %lu, parity fragments: %lu\n", env::replication_data_fragments(), env::replication_parity_fragments());
+		size_of_replication = size_of_chunk / (env::replication_data_fragments());
 		size_of_replication = ((size_of_replication / pagesize) + 1) * pagesize; // align with pagesize
 	}
 	sig::signal_handler<SIGSEGV>::install_argo_handler(&handler);
@@ -1323,10 +1324,10 @@ void storepageDIFF(unsigned long index, unsigned long addr){
 			if(cnt > 0){
 				MPI_Put(&real[i-cnt], cnt, MPI_BYTE, homenode, offset+(i-cnt), cnt, MPI_BYTE, globalDataWindow[homenode]);
 				// CSPext: Update page on repl node
-				if (env::replication_policy() == 0) {
+				if (env::replication_policy() == 1) {
 					MPI_Put(&real[i-cnt], cnt, MPI_BYTE, repl_node, repl_offset+(i-cnt), cnt, MPI_BYTE, replDataWindow[repl_node]);
 				}
-				else if (env::replication_policy() == 1) {
+				else if (env::replication_policy() == 2) {
 					MPI_Accumulate(&real[i-cnt], cnt, MPI_BYTE, repl_node, repl_offset+(i-cnt), cnt, MPI_BYTE, MPI_BXOR, replDataWindow[repl_node]);
 				}
 				cnt = 0;
@@ -1336,10 +1337,10 @@ void storepageDIFF(unsigned long index, unsigned long addr){
 	if(cnt > 0){
 		MPI_Put(&real[i-cnt], cnt, MPI_BYTE, homenode, offset+(i-cnt), cnt, MPI_BYTE, globalDataWindow[homenode]);
 		// CSPext: Update page on repl node
-		if (env::replication_policy() == 0) {
+		if (env::replication_policy() == 1) {
 			MPI_Put(&real[i-cnt], cnt, MPI_BYTE, repl_node, repl_offset+(i-cnt), cnt, MPI_BYTE, replDataWindow[repl_node]);
 		}
-		else if (env::replication_policy() == 1) {
+		else if (env::replication_policy() == 2) {
 			MPI_Accumulate(&real[i-cnt], cnt, MPI_BYTE, repl_node, repl_offset+(i-cnt), cnt, MPI_BYTE, MPI_BXOR, replDataWindow[repl_node]);
 		}
 	}
