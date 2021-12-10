@@ -725,7 +725,7 @@ void load_cache_entry(std::size_t aligned_access_offset) {
 		MPI_Win_unlock(load_node, globalDataWindow[load_node]);
 	} else {
 		/* CSP: load_node points to alternative node, need to use different window */
-		node_alternation_table_recreate_globalDatawindow(&(node_alter_tbl[home_node]));
+		node_alter_tbl_create_globalDatawindow(&(node_alter_tbl[home_node]));
 		/* CSP: Lock, get and unlock on the alternative window */
 		MPI_Win_lock(MPI_LOCK_SHARED, 
 				load_node , 0, node_alter_tbl[home_node].alter_globalDataWindow);
@@ -1354,12 +1354,12 @@ void storepageDIFF(unsigned long index, unsigned long addr){
 	/* CSPext: Check if the target node is down */
 	if (real_home_id != homenode) {
 		/* CSP: alternative node points to another node, need to use different window */
-		node_alternation_table_recreate_globalDatawindow(&(node_alter_tbl[homenode]));
+		node_alter_tbl_create_globalDatawindow(&(node_alter_tbl[homenode]));
 		real_globalDataWindow = node_alter_tbl[homenode].alter_globalDataWindow;
 	}
 	if (real_repl_id != repl_node) {
 		/* CSP: alternative node points to another node, need to use different window */
-		node_alternation_table_recreate_replDatawindow(&(node_alter_tbl[repl_node]));
+		node_alter_tbl_create_replDatawindow(&(node_alter_tbl[repl_node]));
 		real_replDataWindow = node_alter_tbl[repl_node].alter_replDataWindow;
 	}
 
@@ -1509,7 +1509,7 @@ void redundancy_rebuild(argo::node_id_t dead_node) {
 }
 
 /* CSPext: Create or re-create replDataWindow */
-void node_alternation_table_recreate_globalDatawindow(node_alternation_table *tbl) {
+void node_alter_tbl_create_globalDatawindow(node_alternation_table *tbl) {
 	if (tbl->refresh_globalDataWindow) {
 		/* CSP: alternative MPI window needs to be (re-) created */
 		if (tbl->alter_globalDataWindow != MPI_WIN_NULL) {
@@ -1530,7 +1530,7 @@ void node_alternation_table_recreate_globalDatawindow(node_alternation_table *tb
 }
 
 /* CSPext: Create or re-create replDataWindow */
-void node_alternation_table_recreate_replDatawindow(node_alternation_table *tbl) {
+void node_alter_tbl_create_replDatawindow(node_alternation_table *tbl) {
 	if (tbl->refresh_replDataWindow) {
 		/* CSP: alternative MPI window needs to be (re-) created */
 		if (tbl->alter_replDataWindow != MPI_WIN_NULL) {

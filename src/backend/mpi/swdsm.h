@@ -399,14 +399,14 @@ void redundancy_rebuild(argo::node_id_t node);
  * @brief Check flag in the table and update MPI window.
  * @param tbl Pointer to table.
  * */
-void node_alternation_table_recreate_globalDatawindow(node_alternation_table *tbl);
+void node_alter_tbl_create_globalDatawindow(node_alternation_table *tbl);
 
 /* CSPext: Create or re-create replDataWindow */
 /**
  * @brief Check flag in the table and update MPI window.
  * @param tbl Pointer to table.
  * */
-void node_alternation_table_recreate_replDatawindow(node_alternation_table *tbl);
+void node_alter_tbl_create_replDatawindow(node_alternation_table *tbl);
 
 /* CSPext: Copy data from the input pointer's repl node */
 /**
