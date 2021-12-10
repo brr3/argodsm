@@ -904,14 +904,15 @@ void argo_initialize(std::size_t argo_size, std::size_t cache_size){
 	GLOBAL_NULL=size_of_all+1;
 	size_of_chunk = argo_size/(numtasks); //part on each node
 	// CSPext
-	if (env::replication_policy() == 1) {
+	repl_policy = env::replication_policy();
+	if (repl_policy == 1) {
 		// complete replication
 		printf("COMPLETE REPLICATION\n");
 		size_of_replication = size_of_chunk;
 	}
-	else if (env::replication_policy() == 2) {
+	else if (repl_policy == 2) {
 		// erasure coding (n-1, 1)
-		printf("EASURE CODING - data fragments: %lu, parity fragments: %lu\n", env::replication_data_fragments(), env::replication_parity_fragments());
+		printf("ERASURE CODING - data fragments: %lu, parity fragments: %lu\n", env::replication_data_fragments(), env::replication_parity_fragments());
 		size_of_replication = size_of_chunk / (env::replication_data_fragments());
 		size_of_replication = ((size_of_replication / pagesize) + 1) * pagesize; // align with pagesize
 	}
