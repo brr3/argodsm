@@ -392,7 +392,18 @@ unsigned long get_classification_index(uint64_t addr);
 bool _is_cached(std::size_t addr);
 
 /* CSPext: Node rebuild function */
-void redundancy_rebuild(argo::node_id_t node);
+/**
+ * @brief Start rebuilding (or access redirection?) process for a dead node.
+ * @param dead_node Id of the node which is down.
+ * */
+void redundancy_rebuild(argo::node_id_t dead_node);
+
+/* CSPext: Exposed rebuild function for testing purpose */
+/**
+ * @brief Calls redundancy_rebuild. Exposed in argo::backend namespace.
+ * @param dead_node Id of the node which is down.
+ * */
+void argo_test_interface_rebuild(argo::node_id_t dead_node);
 
 /* CSPext: Create or re-create globalDataWindow */
 /**
