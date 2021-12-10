@@ -203,6 +203,12 @@ namespace argo {
 			swdsm_argo_barrier(tc);
 		}
 
+
+		/* CSPext: Exposed rebuild function for testing purpose */
+		void test_interface_rebuild(argo::node_id_t dead_node) {
+			argo_test_interface_rebuild(dead_node);
+		}
+
 		template<typename T>
 		void broadcast(node_id_t source, T* ptr) {
 			sem_wait(&ibsem);
@@ -218,6 +224,8 @@ namespace argo {
 			std::atomic_thread_fence(std::memory_order_release);
 			argo_release();
 		}
+
+
 
 #include "../explicit_instantiations.inc.cpp"
 

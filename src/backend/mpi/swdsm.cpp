@@ -1508,6 +1508,15 @@ void redundancy_rebuild(argo::node_id_t dead_node) {
 	}
 }
 
+/* CSPext: Exposed rebuild function for testing purpose */
+/**
+ * @brief Calls redundancy_rebuild. Exposed in argo::backend namespace.
+ * @param dead_node Id of the node which is down.
+ * */
+void argo_test_interface_rebuild(argo::node_id_t dead_node) {
+	redundancy_rebuild(dead_node);
+}
+
 /* CSPext: Create or re-create replDataWindow */
 void node_alter_tbl_create_globalDatawindow(node_alternation_table *tbl) {
 	if (tbl->refresh_globalDataWindow) {

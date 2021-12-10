@@ -181,6 +181,12 @@ namespace argo {
 			barrier_cv.wait(barrier_lock, []{ return !barrier_flag; });
 		}
 
+		/* CSPext: Exposed rebuild function for testing purpose */
+		void test_interface_rebuild(argo::node_id_t dead_node) {
+			(void)dead_node;
+			return;
+		}
+
 		template<typename T>
 		void broadcast(node_id_t source, T* ptr) {
 			(void)source; // source is always node 0
