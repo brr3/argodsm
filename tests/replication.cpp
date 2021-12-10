@@ -60,7 +60,7 @@ protected:
  * replication
  */
 TEST_F(replicationTest, localCharCR) {
-	if (argo_number_of_nodes() == 1 || argo::env::replication_policy() != 0) {
+	if (argo_number_of_nodes() == 1 || argo::env::replication_policy() != 1) {
 		return;
 	}
 	
@@ -82,7 +82,7 @@ TEST_F(replicationTest, localCharCR) {
  * @brief Test that a replicated char can be fetched by remote nodes using complete replication
  */
 TEST_F(replicationTest, remoteCharCR) {
-	if (argo_number_of_nodes() == 1 || argo::env::replication_policy() != 0) {
+	if (argo_number_of_nodes() == 1 || argo::env::replication_policy() != 1) {
 		return;
 	}
 
@@ -105,7 +105,7 @@ TEST_F(replicationTest, remoteCharCR) {
  * replication
  */
 TEST_F(replicationTest, arrayCR) {
-	if (argo_number_of_nodes() == 1 || argo::env::replication_policy() != 0) {
+	if (argo_number_of_nodes() == 1 || argo::env::replication_policy() != 1) {
 		return;
 	}
 
@@ -136,7 +136,7 @@ TEST_F(replicationTest, arrayCR) {
 }
 
 TEST_F(replicationTest, charEC) {
-	if (argo_number_of_nodes() == 1 || argo::env::replication_policy() != 1) {
+	if (argo_number_of_nodes() == 1 || argo::env::replication_policy() != 2) {
 		return;
 	}
 
@@ -160,7 +160,7 @@ TEST_F(replicationTest, charEC) {
  * @brief Test that the system can recover from a node going down using complete replication
  */
 TEST_F(replicationTest, nodeKillRebuildCR) {
-	if (argo_number_of_nodes() == 1 || argo::env::replication_policy() != 0) {
+	if (argo_number_of_nodes() == 1 || argo::env::replication_policy() != 1) {
 		return;
 	}
 

@@ -64,7 +64,7 @@ namespace {
 	 * 
 	 */
 
-	const std::size_t default_replication_data_fragments = 3;
+	const std::size_t default_replication_data_fragments = 1;
 
 	/**
 	 * @brief default number of data parity in the erasure coding scheme
