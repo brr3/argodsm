@@ -1455,21 +1455,38 @@ void redundancy_rebuild(argo::node_id_t dead_node) {
 	size_t rebuilding_offset 
 			= (char *)(&(node_alter_tbl[dead_node].rebuilding)) - (char *)(&(node_alter_tbl[dead_node]));
 	
-	bool original_bool = true; 	// CSP: Compare-and-swap to this
+	bool original_bool = 1; 	// CSP: Compare-and-swap to this
 	bool compare_bool = false;	// CSP: Compare to this
-	bool result_bool = true;	// CSP: Swap to this
+	bool result_bool = 99;	// CSP: Swap to this
 	node_alternation_table temp_tbl;		// CSP: temparary var for MPI_Put
 
 	argo::node_id_t repl_node = argo_calc_rid(dead_node);
-
+	//fprintf(stderr, "--offset: hid: %lu, gData: %lu, gwindow: %lu, grefresh: %lu, rid: %lu, rdata: %lu, rwindow: %lu, rrefresh: %lu, rebuild: %lu\n", 
+	//				(char *)(&(node_alter_tbl[dead_node].alter_home_id)) - (char *)(&(node_alter_tbl[dead_node])),
+	//				(char *)(&(node_alter_tbl[dead_node].alter_globalData)) - (char *)(&(node_alter_tbl[dead_node])),
+	//				(char *)(&(node_alter_tbl[dead_node].alter_globalDataWindow)) - (char *)(&(node_alter_tbl[dead_node])),
+	//				(char *)(&(node_alter_tbl[dead_node].refresh_globalDataWindow)) - (char *)(&(node_alter_tbl[dead_node])),
+	//				(char *)(&(node_alter_tbl[dead_node].alter_repl_id)) - (char *)(&(node_alter_tbl[dead_node])),
+	//				(char *)(&(node_alter_tbl[dead_node].alter_replData)) - (char *)(&(node_alter_tbl[dead_node])),
+	//				(char *)(&(node_alter_tbl[dead_node].alter_replDataWindow)) - (char *)(&(node_alter_tbl[dead_node])),
+	//				(char *)(&(node_alter_tbl[dead_node].refresh_replDataWindow)) - (char *)(&(node_alter_tbl[dead_node])),
+	//				rebuilding_offset);
+	// That will print: --offset: hid: 0, gData: 8, gwindow: 16, grefresh: 24, rid: 28, rdata: 32, rwindow: 40, rrefresh: 48, rebuild: 49
+	// BTW, the size of the sturcture is 56
+	
 	/* CSP: Get the lock */
-	MPI_Win_lock(MPI_LOCK_EXCLUSIVE, repl_node, 0, node_alter_tbl_window[repl_node]);
-	/* CSP: Lock is on the repl_node! */
+	MPI_Win_lock(MPI_LOCK_EXCLUSIVE, repl_node, 0, node_alter_tbl_window[dead_node]);
 	MPI_Compare_and_swap(&original_bool, &compare_bool, &result_bool, 
-					MPI_C_BOOL, repl_node, rebuilding_offset, node_alter_tbl_window[repl_node]);
-	MPI_Win_unlock(repl_node, node_alter_tbl_window[repl_node]);
+					MPI_C_BOOL, repl_node, rebuilding_offset, node_alter_tbl_window[dead_node]);
+	//MPI_Fetch_and_op(&original_bool, &result_bool, MPI_C_BOOL, repl_node, rebuilding_offset, MPI_REPLACE, node_alter_tbl_window[dead_node]);
+	MPI_Win_unlock(repl_node, node_alter_tbl_window[dead_node]);
 
-	if (result_bool == false) {
+	fprintf(stderr, "%d: ---- result_bool: %d\n", argo_get_nid(), result_bool);
+	if (!result_bool) {
+		if (result_bool == true) {
+			fprintf(stderr, "%d: ---- result_bool: %d\n", argo_get_nid(), result_bool);
+		}
+		fprintf(stderr, "%d: ---- Got the lock! Expected: %s, real: %d, set to: %s\n", argo_get_nid(), compare_bool?"true":"false", result_bool, original_bool?"true":"false");
 		/* CSP: Rebuild node data */
 		/* CSP TODO:
 		 * For complete replication nothing is needed for now. For EC, replace the
@@ -1489,32 +1506,39 @@ void redundancy_rebuild(argo::node_id_t dead_node) {
 		temp_tbl.alter_replDataWindow = MPI_WIN_NULL;	// CSP: Will be updated by each node
 		temp_tbl.refresh_replDataWindow = true;
 
-		printf("----------------------------1488\n");
-
 		for (int i = 0; i < numtasks; ++i) {
-			printf("----i=%d node=%d\n",i,argo_get_nid());
-			MPI_Win_lock(MPI_LOCK_EXCLUSIVE, i, 0, node_alter_tbl_window[dead_node]);
+			if (i != dead_node) {
+				fprintf(stderr, "locking----i=%d node=%d\n",i,argo_get_nid());
+				MPI_Win_lock(MPI_LOCK_EXCLUSIVE, i, 0, node_alter_tbl_window[dead_node]);
+				MPI_Put(&temp_tbl, rebuilding_offset - 1, MPI_CHAR, i, 
+						0, rebuilding_offset - 1, MPI_CHAR, node_alter_tbl_window[dead_node]);
+				MPI_Win_unlock(i, node_alter_tbl_window[dead_node]);
+			}
 		}
-
-		printf("----------------------------1494\n");
 
 		for (int i = 0; i < numtasks; ++i) {
 			if (i != dead_node) {
-				// Don't write to rebuilding variable
-				MPI_Put(&temp_tbl, sizeof(temp_tbl)-2, MPI_CHAR, i, 
-						0, sizeof(temp_tbl)-2, MPI_CHAR, node_alter_tbl_window[dead_node]);
+				// CSP: Use length-2 so as not to write to rebuilding variable
+				//MPI_Put(&temp_tbl, sizeof(temp_tbl)-2, MPI_CHAR, i, 
+				//		0, sizeof(temp_tbl)-2, MPI_CHAR, node_alter_tbl_window[dead_node]);
 			}
 		}
+
 		for (int i = 0; i < numtasks; ++i) {
 			// CSP: Unlock all nodes together so as to "commit" all changes altogether
-			MPI_Win_unlock(i, node_alter_tbl_window[dead_node]);
+			if (i != dead_node) {
+				//printf("unlocking----i=%d node=%d\n",i,argo_get_nid());
+				//MPI_Win_unlock(i, node_alter_tbl_window[dead_node]);
+			}
 		}
 
 		/* CSP: Release the lock */
-		MPI_Win_lock(MPI_LOCK_EXCLUSIVE, repl_node, 0, node_alter_tbl_window[repl_node]);
-		MPI_Put(&compare_bool, 1, MPI_C_BOOL, repl_node, rebuilding_offset, 1, MPI_C_BOOL, node_alter_tbl_window[repl_node]);
-		MPI_Win_unlock(repl_node, node_alter_tbl_window[repl_node]);
+		MPI_Win_lock(MPI_LOCK_EXCLUSIVE, repl_node, 0, node_alter_tbl_window[dead_node]);
+		MPI_Put(&compare_bool, 1, MPI_C_BOOL, repl_node, rebuilding_offset, 1, MPI_C_BOOL, node_alter_tbl_window[dead_node]);
+		MPI_Win_unlock(repl_node, node_alter_tbl_window[dead_node]);
+		fprintf(stderr, "%d: ---- Lock released!\n", argo_get_nid());
 	} else {
+		fprintf(stderr, "%d: ---- No luck!\n", argo_get_nid());
 		/* CSP: Cannot get lock. Just wait until rebuild is done. */
 		while (!node_alter_tbl[dead_node].refresh_replDataWindow) {
 			/* CSP: Until the rebuilder sets this flag to true (via MPI). */
