@@ -184,9 +184,7 @@ TEST_F(replicationTest, nodeKillRebuildCR) {
 	// update_alteration_table(argo_get_homenode(val));
 	// Note: The killed node will still run all the code here since it doesn't actually crash
 
-	fprintf(stderr, "%d: ---------From test: before crashing 1\n", argo::node_id());
 	if (argo_get_homenode(val) == argo::node_id()) {
-		fprintf(stderr, "%d: ---------From test: before crashing 2\n", argo::node_id());
 		ASSERT_EQ(copy, *val); // val should point to the replicated node now
 	}
 }
