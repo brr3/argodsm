@@ -1093,14 +1093,14 @@ void argo_initialize(std::size_t argo_size, std::size_t cache_size){
 			node_alter_tbl[i].alter_globalData = NULL;
 			// CSP: delay initialization of globalDataWindow to when it's used
 			// 		because it must be initialized locally
-			node_alter_tbl[i].alter_globalDataWindow = MPI_WIN_NULL;
+			node_alter_tbl[i].alter_globalDataWindow = NULL;
 			// CSP: a flag to create an globalDataWindow
 			node_alter_tbl[i].refresh_globalDataWindow = false;
 
 			// CSP: same things to replData
 			node_alter_tbl[i].alter_repl_id = i;
 			node_alter_tbl[i].alter_replData = NULL;
-			node_alter_tbl[i].alter_replDataWindow = MPI_WIN_NULL;
+			node_alter_tbl[i].alter_replDataWindow = NULL;
 			node_alter_tbl[i].refresh_replDataWindow = false;
 
 			// CSP: initialize rebuilding blocker lock
@@ -1137,7 +1137,7 @@ void argo_finalize(){
 			printStatistics();
 		}
 	}
-
+	
 	MPI_Barrier(MPI_COMM_WORLD);
 	for(i=0; i<numtasks; i++){
 		MPI_Win_free(&globalDataWindow[i]);
@@ -1147,14 +1147,14 @@ void argo_finalize(){
 			/* CSPext: free node_alter_tbl_window */
 			MPI_Win_free(&node_alter_tbl_window[i]);
 			/* CSPext: free alter_globalDataWindow in node_alter_tbl */
-			if (node_alter_tbl[i].alter_globalDataWindow != MPI_WIN_NULL) {
+			if (node_alter_tbl[i].alter_globalDataWindow != NULL) {
 				MPI_Win_free(&(node_alter_tbl[i].alter_globalDataWindow));
-				node_alter_tbl[i].alter_globalDataWindow = MPI_WIN_NULL; // CSP: it's useless but I'd like to keep a good manner
+				node_alter_tbl[i].alter_globalDataWindow = NULL; // CSP: it's useless but I'd like to keep a good manner
 			}
 			/* CSPext: free alter_replDataWindow in node_alter_tbl */
-			if (node_alter_tbl[i].alter_replDataWindow != MPI_WIN_NULL) {
+			if (node_alter_tbl[i].alter_replDataWindow != NULL) {
 				MPI_Win_free(&(node_alter_tbl[i].alter_replDataWindow));
-				node_alter_tbl[i].alter_replDataWindow = MPI_WIN_NULL; // CSP: it's useless but I'd like to keep a good manner
+				node_alter_tbl[i].alter_replDataWindow = NULL; // CSP: it's useless but I'd like to keep a good manner
 			}
 		}
 	}
@@ -1454,10 +1454,13 @@ void redundancy_rebuild(argo::node_id_t dead_node) {
 
 	size_t rebuilding_offset 
 			= (char *)(&(node_alter_tbl[dead_node].rebuilding)) - (char *)(&(node_alter_tbl[dead_node]));
+	size_t refresh_gWindow_offset
+			= (char *)(&(node_alter_tbl[dead_node].refresh_globalDataWindow)) - (char *)(&(node_alter_tbl[dead_node])); 
 	
-	bool original_bool = 1; 	// CSP: Compare-and-swap to this
+	bool original_bool = true; 	// CSP: Compare-and-swap to this
 	bool compare_bool = false;	// CSP: Compare to this
-	bool result_bool = 99;	// CSP: Swap to this
+	bool result_bool = true;			// CSP: Swap to this
+	bool finished_work = false;
 	node_alternation_table temp_tbl;		// CSP: temparary var for MPI_Put
 
 	argo::node_id_t repl_node = argo_calc_rid(dead_node);
@@ -1481,54 +1484,55 @@ void redundancy_rebuild(argo::node_id_t dead_node) {
 	//MPI_Fetch_and_op(&original_bool, &result_bool, MPI_C_BOOL, repl_node, rebuilding_offset, MPI_REPLACE, node_alter_tbl_window[dead_node]);
 	MPI_Win_unlock(repl_node, node_alter_tbl_window[dead_node]);
 
-	fprintf(stderr, "%d: ---- result_bool: %d\n", argo_get_nid(), result_bool);
+	//fprintf(stderr, "%d: ---- result_bool: %d\n", argo_get_nid(), result_bool);
 	if (!result_bool) {
-		if (result_bool == true) {
-			fprintf(stderr, "%d: ---- result_bool: %d\n", argo_get_nid(), result_bool);
-		}
 		fprintf(stderr, "%d: ---- Got the lock! Expected: %s, real: %d, set to: %s\n", argo_get_nid(), compare_bool?"true":"false", result_bool, original_bool?"true":"false");
-		/* CSP: Rebuild node data */
-		/* CSP TODO:
-		 * For complete replication nothing is needed for now. For EC, replace the
-		 * 	repl_data on the repl_node with the lost original data.
+		/* CSP: other nodes may have finished writing before this node
+		 *  even starts to try and get the lock. Check this first.
 		 * */
+		MPI_Win_lock(MPI_LOCK_EXCLUSIVE, argo_get_nid(), 0, node_alter_tbl_window[dead_node]);
+		MPI_Get(&finished_work, 1, MPI_C_BOOL, argo_get_nid(),
+			refresh_gWindow_offset,	1, MPI_C_BOOL, node_alter_tbl_window[dead_node]);
+		MPI_Win_unlock(argo_get_nid(), node_alter_tbl_window[dead_node]);
+		if (!finished_work) {
+			/* CSP: Rebuild node data */
+			/* CSP TODO:
+			 * For complete replication nothing is needed for now. For EC, replace the
+			 * 	repl_data on the repl_node with the lost original data.
+			 * */
 
-		/* CSP: Rebuild data as alternative node */
-		/* CSP TODO: Fetch repl data locally (create area first) */
+			/* CSP: Rebuild data as alternative node */
+			/* CSP TODO: Fetch repl data locally (create area first) */
 		
-		/* CSP: Update all alt_tbl. Note that you shall update id=dead_node. */
-		temp_tbl.alter_home_id = repl_node;
-		temp_tbl.alter_globalData = replData;	// CSP: Point it to the repl node's repl area
-		temp_tbl.alter_globalDataWindow = MPI_WIN_NULL;	// CSP： Will be updated by each node
-		temp_tbl.refresh_globalDataWindow = true;
-		temp_tbl.alter_repl_id = dead_node;// CSP TODO: recreate this repl_data locally and point this to argo_get_nid()
-		temp_tbl.alter_replData = NULL;		// CSP TODO
-		temp_tbl.alter_replDataWindow = MPI_WIN_NULL;	// CSP: Will be updated by each node
-		temp_tbl.refresh_replDataWindow = true;
+			/* CSP: Update all alt_tbl. Note that you shall update id=dead_node. */
+			temp_tbl.alter_home_id = repl_node;
+			temp_tbl.alter_globalData = replData;	// CSP: Point it to the repl node's repl area
+			temp_tbl.alter_globalDataWindow = NULL;	// CSP： Will be updated by each node
+			temp_tbl.refresh_globalDataWindow = true;
+			temp_tbl.alter_repl_id = dead_node;// CSP TODO: recreate this repl_data locally and point this to argo_get_nid()
+			temp_tbl.alter_replData = NULL;		// CSP TODO
+			temp_tbl.alter_replDataWindow = NULL;	// CSP: Will be updated by each node
+			temp_tbl.refresh_replDataWindow = false;
 
-		for (int i = 0; i < numtasks; ++i) {
-			if (i != dead_node) {
-				fprintf(stderr, "locking----i=%d node=%d\n",i,argo_get_nid());
-				MPI_Win_lock(MPI_LOCK_EXCLUSIVE, i, 0, node_alter_tbl_window[dead_node]);
-				MPI_Put(&temp_tbl, rebuilding_offset - 1, MPI_CHAR, i, 
-						0, rebuilding_offset - 1, MPI_CHAR, node_alter_tbl_window[dead_node]);
-				MPI_Win_unlock(i, node_alter_tbl_window[dead_node]);
+			for (int i = 0; i < numtasks; ++i) {
+				if (i != dead_node) {
+					MPI_Win_lock(MPI_LOCK_EXCLUSIVE, i, 0, node_alter_tbl_window[dead_node]);
+				}
 			}
-		}
 
-		for (int i = 0; i < numtasks; ++i) {
-			if (i != dead_node) {
-				// CSP: Use length-2 so as not to write to rebuilding variable
-				//MPI_Put(&temp_tbl, sizeof(temp_tbl)-2, MPI_CHAR, i, 
-				//		0, sizeof(temp_tbl)-2, MPI_CHAR, node_alter_tbl_window[dead_node]);
+			for (int i = 0; i < numtasks; ++i) {
+				if (i != dead_node) {
+					// CSP: Use shorter length so as not to write to rebuilding variable
+					MPI_Put(&temp_tbl, rebuilding_offset - 1, MPI_CHAR, i, 
+							0, rebuilding_offset - 1, MPI_CHAR, node_alter_tbl_window[dead_node]);
+				}
 			}
-		}
 
-		for (int i = 0; i < numtasks; ++i) {
-			// CSP: Unlock all nodes together so as to "commit" all changes altogether
-			if (i != dead_node) {
-				//printf("unlocking----i=%d node=%d\n",i,argo_get_nid());
-				//MPI_Win_unlock(i, node_alter_tbl_window[dead_node]);
+			for (int i = 0; i < numtasks; ++i) {
+				// CSP: Unlock all nodes together so as to "commit" all changes altogether
+				if (i != dead_node) {
+					MPI_Win_unlock(i, node_alter_tbl_window[dead_node]);
+				}
 			}
 		}
 
@@ -1536,16 +1540,17 @@ void redundancy_rebuild(argo::node_id_t dead_node) {
 		MPI_Win_lock(MPI_LOCK_EXCLUSIVE, repl_node, 0, node_alter_tbl_window[dead_node]);
 		MPI_Put(&compare_bool, 1, MPI_C_BOOL, repl_node, rebuilding_offset, 1, MPI_C_BOOL, node_alter_tbl_window[dead_node]);
 		MPI_Win_unlock(repl_node, node_alter_tbl_window[dead_node]);
-		fprintf(stderr, "%d: ---- Lock released!\n", argo_get_nid());
 	} else {
-		fprintf(stderr, "%d: ---- No luck!\n", argo_get_nid());
-		/* CSP: Cannot get lock. Just wait until rebuild is done. */
-		while (!node_alter_tbl[dead_node].refresh_replDataWindow) {
-			/* CSP: Until the rebuilder sets this flag to true (via MPI). */
+		/* CSP: Use MPI to access local mem because it may be updated by MPI */
+		while (!finished_work) {
+			MPI_Win_lock(MPI_LOCK_EXCLUSIVE, argo_get_nid(), 0, node_alter_tbl_window[dead_node]);
+			MPI_Get(&finished_work, 1, MPI_C_BOOL, argo_get_nid(),
+				refresh_gWindow_offset,	1, MPI_C_BOOL, node_alter_tbl_window[dead_node]);
+			MPI_Win_unlock(argo_get_nid(), node_alter_tbl_window[dead_node]);
 		}
-	}
 
-	printf("rebuild complete for node %d\n", argo_get_nid());
+		node_alter_tbl[dead_node].refresh_globalDataWindow = false;
+	}
 }
 
 /* CSPext: Exposed rebuild function for testing purpose */
@@ -1561,10 +1566,10 @@ void argo_test_interface_rebuild(argo::node_id_t dead_node) {
 void node_alter_tbl_create_globalDatawindow(node_alternation_table *tbl) {
 	if (tbl->refresh_globalDataWindow) {
 		/* CSP: alternative MPI window needs to be (re-) created */
-		if (tbl->alter_globalDataWindow != MPI_WIN_NULL) {
+		if (tbl->alter_globalDataWindow != NULL) {
 			/* CSP: in case of re-creation, needs to free window first */
 			MPI_Win_free(&(tbl->alter_globalDataWindow));
-			tbl->alter_globalDataWindow = MPI_WIN_NULL; 
+			tbl->alter_globalDataWindow = NULL; 
 		}
  		MPI_Win_create(
 			tbl->alter_globalData, 
@@ -1582,10 +1587,10 @@ void node_alter_tbl_create_globalDatawindow(node_alternation_table *tbl) {
 void node_alter_tbl_create_replDatawindow(node_alternation_table *tbl) {
 	if (tbl->refresh_replDataWindow) {
 		/* CSP: alternative MPI window needs to be (re-) created */
-		if (tbl->alter_replDataWindow != MPI_WIN_NULL) {
+		if (tbl->alter_replDataWindow != NULL) {
 			/* CSP: in case of re-creation, needs to free window first */
 			MPI_Win_free(&(tbl->alter_replDataWindow));
-			tbl->alter_replDataWindow = MPI_WIN_NULL; 
+			tbl->alter_replDataWindow = NULL; 
 		}
  		MPI_Win_create(
 			tbl->alter_replData, 
