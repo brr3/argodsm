@@ -726,11 +726,9 @@ void load_cache_entry(std::size_t aligned_access_offset) {
 				load_node, load_offset, fetch_size, cacheblock, globalDataWindow[load_node]);
 		MPI_Win_unlock(load_node, globalDataWindow[load_node]);
 	} else {
-		fprintf(stderr, "%d: ---- altered home node %d to %d\n", argo_get_nid(), home_node, load_node);
 		/* CSP: load_node points to alternative node, need to use different window */
 		node_alter_tbl_create_globalDatawindow(&(node_alter_tbl[home_node]));
 		/* CSP: Lock, get and unlock on the alternative window */
-		fprintf(stderr, "%d: ---- %p\n", argo_get_nid(), node_alter_tbl[home_node].alter_globalDataWindow);
 		MPI_Win_lock(MPI_LOCK_SHARED, 
 				load_node , 0, node_alter_tbl[home_node].alter_globalDataWindow);
 		MPI_Get(temp_data.data(), fetch_size, cacheblock,
@@ -1364,13 +1362,11 @@ void storepageDIFF(unsigned long index, unsigned long addr){
 
 	/* CSPext: Check if the target node is down */
 	if (real_home_id != homenode) {
-		fprintf(stderr, "%d: new home id\n", argo_get_nid());
 		/* CSP: alternative node points to another node, need to use different window */
 		node_alter_tbl_create_globalDatawindow(&(node_alter_tbl[homenode]));
 		real_globalDataWindow = node_alter_tbl[homenode].alter_globalDataWindow;
 	}
 	if (real_repl_id != repl_node) {
-		fprintf(stderr, "%d: new repl id\n", argo_get_nid());
 		/* CSP: alternative node points to another node, need to use different window */
 		node_alter_tbl_create_replDatawindow(&(node_alter_tbl[repl_node]));
 		real_replDataWindow = node_alter_tbl[repl_node].alter_replDataWindow;
@@ -1552,7 +1548,6 @@ void redundancy_rebuild(argo::node_id_t dead_node) {
 			sem_post(&ibsem);
 
 			sem_wait(&ibsem);
-			fprintf(stderr, "----%d, %p, %p, %p\n", home_of_rdata, home_gdata_win, globalDataWindow[home_of_rdata], node_alter_tbl[home_of_rdata].alter_globalDataWindow);
 			MPI_Win_lock(MPI_LOCK_EXCLUSIVE, home_of_rdata, 0, home_gdata_win);
 			MPI_Get(temp_tbl.alter_replData, size_of_chunk, MPI_BYTE, home_of_rdata, 
 					0, size_of_chunk, MPI_BYTE, home_gdata_win);
@@ -1607,14 +1602,12 @@ void argo_test_interface_rebuild(argo::node_id_t dead_node) {
 /* CSPext: Create or re-create replDataWindow */
 void node_alter_tbl_create_globalDatawindow(node_alternation_table *tbl) {
 	if (tbl->refresh_globalDataWindow) {
-		fprintf(stderr, "%d: ---- before: %p\n", argo_get_nid(), tbl->alter_globalDataWindow);
 		/* CSP: alternative MPI window needs to be (re-) created */
 		if (tbl->alter_globalDataWindow != NULL) {
 			/* CSP: in case of re-creation, needs to free window first */
 			MPI_Win_free(&(tbl->alter_globalDataWindow));
 			tbl->alter_globalDataWindow = NULL; 
 		}
-		fprintf(stderr, "%d: ---- creating...\n", argo_get_nid());
  		MPI_Win_create(
 			tbl->alter_globalData, 
 			size_of_chunk*sizeof(argo_byte), 
@@ -1623,7 +1616,6 @@ void node_alter_tbl_create_globalDatawindow(node_alternation_table *tbl) {
 			MPI_COMM_WORLD, 
 			&(tbl->alter_globalDataWindow)
 		);
-		fprintf(stderr, "%d: ---- after: %p\n", argo_get_nid(), tbl->alter_globalDataWindow);
 		tbl->refresh_globalDataWindow = false;
 	}
 }
@@ -1651,6 +1643,10 @@ void node_alter_tbl_create_replDatawindow(node_alternation_table *tbl) {
 
 /* CSPext: A function to copy data from the input pointer's repl node */
 void get_replicated_data(dd::global_ptr<char> ptr, void* container, unsigned int len) {
+	/*
+	 * CSP TODO:
+	 * Update table-checking
+	 * */
 	const argo::node_id_t h = ptr.peek_node();
 	const argo::node_id_t r = ptr.get_replication_node();	// repl node id
 	const std::size_t offset = ptr.get_replication_offset();
@@ -1668,11 +1664,11 @@ void get_replicated_data(dd::global_ptr<char> ptr, void* container, unsigned int
 		return;
 	} else {
 		// Lock needed? (Probably)
-		printf("Start address: %p; ptr address: %p; ptr offset: %lu; globalData: %p\n", 
-						argo::backend::global_base(), ptr.get(), ptr.offset(), globalData);
+		//printf("Start address: %p; ptr address: %p; ptr offset: %lu; globalData: %p\n", 
+		//				argo::backend::global_base(), ptr.get(), ptr.offset(), globalData);
 
-		printf("ptr.get(): %x, globalData + offset(): %x\n", 
-						*ptr.get(), *(globalData + ptr.offset()));
+		//printf("ptr.get(): %x, globalData + offset(): %x\n", 
+		//				*ptr.get(), *(globalData + ptr.offset()));
 		sem_wait(&ibsem);
 		MPI_Win_lock(MPI_LOCK_EXCLUSIVE, r, 0, replDataWindow[r]);
 		MPI_Get(container, len, MPI_BYTE, r, offset, len, MPI_BYTE, replDataWindow[r]);
