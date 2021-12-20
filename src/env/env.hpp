@@ -116,6 +116,20 @@ namespace argo {
 		std::size_t replication_policy();
 
 		/**
+		 * @brief get the replication data fragments requested by environment variable
+		 * @return the requested replication data fragments as a number
+		 */
+		std::size_t replication_data_fragments();
+
+		/**
+		 * @brief get the replication parity fragments requested by environment variable
+		 * @return the requested replication parity fragments as a number
+		 */
+		std::size_t replication_parity_fragments();
+
+		// CSPext end
+
+		/**
 		 * @brief get the number of pages fetched remotely per load requested
 		 * by environment variable
 		 * @return the number of pages

@@ -924,15 +924,16 @@ void argo_initialize(std::size_t argo_size, std::size_t cache_size){
 	GLOBAL_NULL=size_of_all+1;
 	size_of_chunk = argo_size/(numtasks); //part on each node
 	// CSPext
-	if (env::replication_policy() == 0) {
+	size_t repl_policy = env::replication_policy();
+	if (repl_policy == 1) {
 		// complete replication
 		printf("COMPLETE REPLICATION\n");
 		size_of_replication = size_of_chunk;
 	}
-	else if (env::replication_policy() == 1) {
+	else if (repl_policy == 2) {
 		// erasure coding (n-1, 1)
-		printf("EASURE CODING\n");
-		size_of_replication = size_of_chunk / (numtasks - 1);
+		printf("ERASURE CODING - data fragments: %lu, parity fragments: %lu\n", env::replication_data_fragments(), env::replication_parity_fragments());
+		size_of_replication = size_of_chunk / (env::replication_data_fragments());
 		size_of_replication = ((size_of_replication / pagesize) + 1) * pagesize; // align with pagesize
 	}
 	sig::signal_handler<SIGSEGV>::install_argo_handler(&handler);
@@ -1146,7 +1147,7 @@ void argo_finalize(){
 			printStatistics();
 		}
 	}
-	
+
 	MPI_Barrier(MPI_COMM_WORLD);
 	for(i=0; i<numtasks; i++){
 		MPI_Win_free(&globalDataWindow[i]);
@@ -1395,10 +1396,11 @@ void storepageDIFF(unsigned long index, unsigned long addr){
 			if(cnt > 0){
 				MPI_Put(&real[i-cnt], cnt, MPI_BYTE, homenode, offset+(i-cnt), cnt, MPI_BYTE, real_globalDataWindow);
 				// CSPext: Update page on repl node
-				if (env::replication_policy() == 0) {
-					MPI_Put(&real[i-cnt], cnt, MPI_BYTE, real_repl_id, repl_offset+(i-cnt), cnt, MPI_BYTE, real_replDataWindow);
-				} else if (env::replication_policy() == 1) {
-					MPI_Accumulate(&real[i-cnt], cnt, MPI_BYTE, real_repl_id, repl_offset+(i-cnt), cnt, MPI_BYTE, MPI_BXOR, real_replDataWindow);
+				if (env::replication_policy() == 1) {
+					MPI_Put(&real[i-cnt], cnt, MPI_BYTE, repl_node, repl_offset+(i-cnt), cnt, MPI_BYTE, real_replDataWindow);
+				}
+				else if (env::replication_policy() == 2) {
+					MPI_Accumulate(&real[i-cnt], cnt, MPI_BYTE, repl_node, repl_offset+(i-cnt), cnt, MPI_BYTE, MPI_BXOR, real_replDataWindow);
 				}
 				cnt = 0;
 			}
@@ -1407,10 +1409,11 @@ void storepageDIFF(unsigned long index, unsigned long addr){
 	if(cnt > 0){
 		MPI_Put(&real[i-cnt], cnt, MPI_BYTE, homenode, offset+(i-cnt), cnt, MPI_BYTE, real_globalDataWindow);
 		// CSPext: Update page on repl node
-		if (env::replication_policy() == 0) {
-			MPI_Put(&real[i-cnt], cnt, MPI_BYTE, real_repl_id, repl_offset+(i-cnt), cnt, MPI_BYTE, real_replDataWindow);
-		} else if (env::replication_policy() == 1) {
-			MPI_Accumulate(&real[i-cnt], cnt, MPI_BYTE, real_repl_id, repl_offset+(i-cnt), cnt, MPI_BYTE, MPI_BXOR, real_replDataWindow);
+		if (env::replication_policy() == 1) {
+			MPI_Put(&real[i-cnt], cnt, MPI_BYTE, repl_node, repl_offset+(i-cnt), cnt, MPI_BYTE, real_replDataWindow);
+		}
+		else if (env::replication_policy() == 2) {
+			MPI_Accumulate(&real[i-cnt], cnt, MPI_BYTE, repl_node, repl_offset+(i-cnt), cnt, MPI_BYTE, MPI_BXOR, real_replDataWindow);
 		}
 	}
 	stats.stores++;
@@ -1473,7 +1476,7 @@ void redundancy_rebuild(argo::node_id_t dead_node) {
 	bool result_bool = true;			// CSP: Swap to this
 	bool finished_work = false;
 	node_alternation_table temp_tbl;		// CSP: temparary var for MPI_Put
-
+	
 	argo::node_id_t repl_node = node_alter_tbl[argo_calc_rid(dead_node)].alter_repl_id;
 	argo::node_id_t home_of_rdata = ((dead_node == 0) ? (argo_get_nodes() - 1) : (dead_node - 1));
 	MPI_Win home_gdata_win 
@@ -1520,12 +1523,12 @@ void redundancy_rebuild(argo::node_id_t dead_node) {
 			/* CSP: Rebuild data as alternative node */
 		
 			/* CSP: Update all alt_tbl. Note that you should update id=dead_node. */
-			temp_tbl.alter_home_id = argo_get_nid();
+			temp_tbl.alter_home_id = dead_node; //argo_get_nid();
 			temp_tbl.alter_globalData 
 					= static_cast<char*>(vm::allocate_mappable(pagesize, size_of_chunk));
 			temp_tbl.alter_globalDataWindow = NULL;	// CSP： Will be updated by each node
 			temp_tbl.refresh_globalDataWindow = true;
-			temp_tbl.alter_repl_id = argo_get_nid();
+			temp_tbl.alter_repl_id = dead_node; //argo_get_nid();
 			temp_tbl.alter_replData 
 					= static_cast<char*>(vm::allocate_mappable(pagesize, size_of_chunk));
 			temp_tbl.alter_replDataWindow = NULL;	// CSP: Will be updated by each node
