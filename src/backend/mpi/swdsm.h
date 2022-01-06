@@ -105,6 +105,29 @@ typedef struct argo_statisticsStruct
 		double ssdtime;
 } argo_statistics;
 
+/* CSPext: struct for homenode alternation table */
+/** @brief Node alternation record struct. To be used as array: node_alter_tbl[n_node] */
+typedef struct node_alternation_table {
+	/** @brief altered node id. Initialized to the record's home id. */
+	argo::node_id_t alter_home_id;
+	/** @brief new globalData ptr (address on alter node). Initialized to NULL. */
+	char* alter_globalData;
+	/** @brief new MPI window. Initialized to NULL. Delay assignment to use time. */
+	MPI_Win alter_globalDataWindow;
+	/** @brief flag to create the window. Need this in case of recreating windows. */
+	bool refresh_globalDataWindow;
+	/** @brief altered replicated node id. Initialized to the record's home id. */
+	argo::node_id_t alter_repl_id;
+	/** @brief new replData ptr (address on alter node). Initialized to NULL. */
+	char* alter_replData;
+	/** @brief new repl MPI window. Initialized to NULL. Delay assignment to use time. */
+	MPI_Win alter_replDataWindow;
+	/** @brief flag to create the repl window. Need this in case of recreating windows. */
+	bool refresh_replDataWindow;
+	/** @brief flag to block others from rebuilding this node's home node. */
+	bool rebuilding;
+} node_alternation_table;
+
 /*constants for control values*/
 /** @brief Constant for invalid states */
 static const argo_byte INVALID=0;
@@ -367,6 +390,34 @@ unsigned long get_classification_index(uint64_t addr);
  * @todo this should be moved in to a dedicated cache class
  */
 bool _is_cached(std::size_t addr);
+
+/* CSPext: Node rebuild function */
+/**
+ * @brief Start rebuilding (or access redirection?) process for a dead node.
+ * @param dead_node Id of the node which is down.
+ * */
+void redundancy_rebuild(argo::node_id_t dead_node);
+
+/* CSPext: Exposed rebuild function for testing purpose */
+/**
+ * @brief Calls redundancy_rebuild. Exposed in argo::backend namespace.
+ * @param dead_node Id of the node which is down.
+ * */
+void argo_test_interface_rebuild(argo::node_id_t dead_node);
+
+/* CSPext: Create or re-create globalDataWindow */
+/**
+ * @brief Check flag in the table and update MPI window.
+ * @param tbl Pointer to table.
+ * */
+void node_alter_tbl_create_globalDatawindow(node_alternation_table *tbl);
+
+/* CSPext: Create or re-create replDataWindow */
+/**
+ * @brief Check flag in the table and update MPI window.
+ * @param tbl Pointer to table.
+ * */
+void node_alter_tbl_create_replDatawindow(node_alternation_table *tbl);
 
 /* CSPext: Copy data from the input pointer's repl node */
 /**

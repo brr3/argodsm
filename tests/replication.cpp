@@ -129,12 +129,15 @@ TEST_F(replicationTest, arrayCR) {
 	for (std::size_t i = 0; i < array_size; i++) {
 		count += receiver[i];
 	}
-	ASSERT_EQ(count, array_size);
+	ASSERT_EQ((unsigned)count, array_size);
 
 	delete [] receiver;
 	argo::codelete_array(array);
 }
 
+/**
+ * @brief Test that a replicated char can be fetched using erasure coding
+ */
 TEST_F(replicationTest, charEC) {
 	if (argo_number_of_nodes() == 1 || argo::env::replication_policy() != 2) {
 		return;
@@ -214,6 +217,11 @@ TEST_F(replicationTest, nodeKillRebuildCR) {
 
 	char copy = *val;
 
+	argo::barrier();
+	argo::backend::test_interface_rebuild(0);
+	// *val += 1;
+	argo::barrier();
+
 	// kill_node(argo_get_homenode(val));
 	// OR:
 	// update_alteration_table(argo_get_homenode(val));
@@ -222,6 +230,17 @@ TEST_F(replicationTest, nodeKillRebuildCR) {
 	if (argo_get_homenode(val) == argo::node_id()) {
 		ASSERT_EQ(copy, *val); // val should point to the replicated node now
 	}
+}
+
+/**
+ * @brief Test that the node alternation table is working
+ */
+TEST_F(replicationTest, alternationTable) {
+	if (argo_number_of_nodes() == 1 || argo::env::replication_policy() != 0) {
+		return;
+	}
+
+	
 }
 
 /**

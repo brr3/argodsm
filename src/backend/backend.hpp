@@ -130,6 +130,13 @@ namespace argo {
 		 */
 		void barrier(std::size_t threadcount=1);
 
+		/* CSPext: Exposed rebuild function for testing purpose */
+		/**
+ 		* @brief Calls redundancy_rebuild in the mpi backend.
+ 		* @param dead_node Id of the node which is down.
+ 		* */
+		void test_interface_rebuild(argo::node_id_t dead_node);
+
 		/**
 		 * @brief broadcast-style collective synchronization
 		 * @tparam T type of synchronized object
