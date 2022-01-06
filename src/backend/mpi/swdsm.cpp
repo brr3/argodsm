@@ -525,7 +525,7 @@ void load_cache_entry(std::size_t aligned_access_offset) {
 	/* CSP ext: look up alter table. Keep home_node for comparison */
 	argo::node_id_t home_node = get_homenode(aligned_access_offset);
 	argo::node_id_t load_node = home_node;
-	if (env::replication_policy() != 0) {
+	if (useReplication) {
 		home_node = get_homenode(aligned_access_offset);
 		load_node = node_alter_tbl[home_node].alter_home_id;
 	}
@@ -555,7 +555,7 @@ void load_cache_entry(std::size_t aligned_access_offset) {
 			 *  which goes into the definition of global_ptr? Maybe not...?
 			 * */
 			argo::node_id_t temp_node = peek_homenode(temp_addr);
-			if (env::replication_policy() != 0) {
+			if (useReplication) {
 				temp_node = node_alter_tbl[peek_homenode(temp_addr)].alter_home_id;
 			}
 			const std::size_t temp_offset = peek_offset(temp_addr);
