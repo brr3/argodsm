@@ -141,7 +141,6 @@ unsigned long size_of_replication;
 /** @brief size of this process replication address space */
 bool useReplication;
 
-
 /*First-Touch policy*/
 /** @brief  Holds the owner and backing offset of a page */
 std::uintptr_t *global_owners_dir;
