@@ -138,7 +138,7 @@ MPI_Win* node_alter_tbl_window;
 std::size_t vm_map_offset_record;
 /** @brief size of this process replication address space */
 unsigned long size_of_replication;
-/** @brief size of this process replication address space */
+/** @brief Whether to use replication or not */
 bool useReplication;
 
 /*First-Touch policy*/
