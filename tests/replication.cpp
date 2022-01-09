@@ -219,7 +219,7 @@ TEST_F(replicationTest, nodeKillRebuildCR) {
 
 	argo::barrier();
 	argo::backend::test_interface_rebuild(0);
-	// *val += 1;
+	*val += 1;
 	argo::barrier();
 
 	// kill_node(argo_get_homenode(val));
@@ -228,7 +228,7 @@ TEST_F(replicationTest, nodeKillRebuildCR) {
 	// Note: The killed node will still run all the code here since it doesn't actually crash
 
 	if (argo_get_homenode(val) == argo::node_id()) {
-		ASSERT_EQ(copy, *val); // val should point to the replicated node now
+		ASSERT_EQ(copy += 2, *val); // val should point to the replicated node now
 	}
 }
 

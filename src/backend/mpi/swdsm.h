@@ -124,8 +124,8 @@ typedef struct node_alternation_table {
 	MPI_Win alter_replDataWindow;
 	/** @brief flag to create the repl window. Need this in case of recreating windows. */
 	bool refresh_replDataWindow;
-	/** @brief flag to block others from rebuilding this node's home node. */
-	bool rebuilding;
+	/** @brief flag to block others from recovering this node's preceeding node. */
+	bool recovering;
 } node_alternation_table;
 
 /*constants for control values*/
@@ -391,16 +391,16 @@ unsigned long get_classification_index(uint64_t addr);
  */
 bool _is_cached(std::size_t addr);
 
-/* CSPext: Node rebuild function */
+/* CSPext: Node data revocery function */
 /**
- * @brief Start rebuilding (or access redirection?) process for a dead node.
+ * @brief Start data recovering (rebuild or access redirecting) process for a dead node.
  * @param dead_node Id of the node which is down.
  * */
-void redundancy_rebuild(argo::node_id_t dead_node);
+void lost_node_data_recovery(argo::node_id_t dead_node);
 
-/* CSPext: Exposed rebuild function for testing purpose */
+/* CSPext: Exposed data_recovery function for testing purpose */
 /**
- * @brief Calls redundancy_rebuild. Exposed in argo::backend namespace.
+ * @brief Calls lost_node_data_recovery. Exposed in argo::backend namespace.
  * @param dead_node Id of the node which is down.
  * */
 void argo_test_interface_rebuild(argo::node_id_t dead_node);

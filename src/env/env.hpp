@@ -127,6 +127,11 @@ namespace argo {
 		 */
 		std::size_t replication_parity_fragments();
 
+		/**
+		 * @brief get the replication recovery policy requested by environment variable
+		 * @return the requested replication recovery policy as a number
+		 */
+		std::size_t replication_recovery_policy();
 		// CSPext end
 
 		/**

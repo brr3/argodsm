@@ -54,7 +54,7 @@ namespace {
 	// CSPext
 
 	/**
-	 * @brief default requested replication policy (if environment variable is unset)
+	 * @brief default requested replication policy (if environment variable is unset). 0 for none; 1 for complete rep; 2 for EC
 	 * @see @ref ARGO_REPLICATION_POLICY
 	 */
 	const std::size_t default_replication_policy = 1;
@@ -73,13 +73,19 @@ namespace {
 	const std::size_t default_replication_parity_fragments = 1;
 
 	/**
+	 * @brief default data recovery policy. 0 for redirecting; 1 for rebuilding
+	 * @see @ref ARGO_REPLICATION_RECOVERY_POLICY
+	 */
+	const std::size_t default_replication_recovery_policy = 0;
+
+	/**
 	 * @brief default requested load size (if environment variable is unset)
 	 * @see @ref ARGO_LOAD_SIZE
 	 */
 	const std::size_t default_load_size = 8;
 
 	/**
-	 * @brief environment variable used for requesting memory size
+	 * @brief environment variable used for rYoequesting memory size
 	 * @see @ref ARGO_MEMORY_SIZE
 	 */
 	const std::string env_memory_size = "ARGO_MEMORY_SIZE";
@@ -133,6 +139,12 @@ namespace {
 	 * in the erasure coding scheme
 	 */
 	const std::string env_replication_parity_fragments = "ARGO_REPLICATION_PARITY_FRAGMENTS";
+
+	/**
+	 * @brief environment variable used for requesting default data recovery policy
+	 * @see @ref ARGO_REPLICATION_RECOVERY_POLICY
+	 */
+	const std::string env_replication_recovery_policy = "ARGO_REPLICATION_RECOVERY_POLICY";
 
 	/**
 	 * @brief environment variable used for requesting load size
@@ -195,6 +207,11 @@ namespace {
 	 * 
 	 */
 	std::size_t value_replication_parity_fragments;
+
+	/**
+	 * @brief default data recovery policy requested through the environment variable @ref ARGO_REPLICATION_RECOVERY_POLICY
+	 */
+	std::size_t value_replication_recovery_policy;
 
 	/**
 	 * @brief load size requested through the environment variable @ref ARGO_LOAD_SIZE
@@ -268,6 +285,7 @@ namespace argo {
 			value_replication_policy = parse_env<std::size_t>(env_replication_policy, default_replication_policy).second;
 			value_replication_data_fragments = parse_env<std::size_t>(env_replication_data_fragments, default_replication_data_fragments).second;
 			value_replication_parity_fragments = parse_env<std::size_t>(env_replication_parity_fragments, default_replication_parity_fragments).second;
+			value_replication_recovery_policy = parse_env<std::size_t>(env_replication_recovery_policy, default_replication_recovery_policy).second;
 			// CSPext end
 			value_load_size = parse_env<std::size_t>(env_load_size, default_load_size).second;
 
@@ -319,6 +337,11 @@ namespace argo {
 		std::size_t replication_parity_fragments() {
 			assert_initialized();
 			return value_replication_parity_fragments;
+		}
+
+		std::size_t replication_recovery_policy() {
+			assert_initialized();
+			return value_replication_recovery_policy;
 		}
 		// CSPext end
 
