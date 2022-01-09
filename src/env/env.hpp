@@ -111,7 +111,8 @@ namespace argo {
 
 		/**
 		 * @brief get the replication policy requested by environment variable
-		 * @return the requested replication policy as a number. 0 == complete replication, 1 == erasure code (n-1, 1)
+		 * @return the requested replication policy as a number:
+		 * 0 == no replication, 1 == complete replication, 2 == erasure code (n-1, 1)
 		 */
 		std::size_t replication_policy();
 
