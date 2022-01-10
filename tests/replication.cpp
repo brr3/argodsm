@@ -205,7 +205,7 @@ TEST_F(replicationTest, arrayEC) {
  * @brief Test that the system can recover from a node going down using complete replication
  */
 TEST_F(replicationTest, nodeKillRebuildCR) {
-	if (argo_number_of_nodes() == 1 || argo::env::replication_policy() != 2) {
+	if (argo_number_of_nodes() == 1 || argo::env::replication_policy() != 1) {
 		return;
 	}
 
@@ -220,7 +220,21 @@ TEST_F(replicationTest, nodeKillRebuildCR) {
 
 	argo::barrier();
 	argo::backend::test_interface_rebuild(0);
-	printf("%c\n", *val);// += 1;
+	if (argo::node_id() == 1){
+		*val += 1;
+	}
+	argo::barrier();
+	if (argo::node_id() == 2){
+		*val += 1;
+	}
+	argo::barrier();
+	if (argo::node_id() == 3){
+		*val += 1;
+	}
+	argo::barrier();
+	if (argo::node_id() == 1){
+		*val += 1;
+	}
 	argo::barrier();
 
 	// kill_node(argo_get_homenode(val));
@@ -229,7 +243,7 @@ TEST_F(replicationTest, nodeKillRebuildCR) {
 	// Note: The killed node will still run all the code here since it doesn't actually crash
 
 	if (argo_get_homenode(val) == argo::node_id()) {
-		ASSERT_EQ(copy += 2, *val); // val should point to the replicated node now
+		ASSERT_EQ((char)(copy + 4), *val); // val should point to the replicated node now
 	}
 }
 
@@ -237,19 +251,21 @@ TEST_F(replicationTest, nodeKillRebuildCR) {
  * @brief Test that the node alternation table is working
  */
 TEST_F(replicationTest, alternationTable) {
-	if (argo::node_id() != 0 || argo_number_of_nodes() == 1 || argo::env::replication_policy() != 2) {
+	if (argo::node_id() != 0 || argo_number_of_nodes() == 1 || argo::env::replication_policy() != 5) {
 		return;
 	}
 
 	/* Verify the repl page calculation */
 	std::size_t addr = 0;//argo::virtual_memory::start_address();
-	for (addr = 0; addr < (argo::virtual_memory::size()); addr += 4096) {
+	for (addr = 0; addr < (argo::backend::global_size()); addr += 4096) {
 		global_char gptr(reinterpret_cast<char*>(
 			addr + reinterpret_cast<unsigned long>(argo::virtual_memory::start_address())), false, false);
-		printf("%lu: on node %d, offset %lu; repl to %d, offset: %lu\n", 
+		printf("%lu: on node %d, offset %lu; repl to %d, offset: %lu, vm size: %lu\n", 
 						addr,
 					   	gptr.peek_node(), gptr.peek_offset(),
-						gptr.get_replication_node(), gptr.get_replication_offset());
+						gptr.get_replication_node(), 
+						gptr.get_replication_offset(),
+						argo::backend::global_size());
 	}
 	//ASSERT_EQ(false, true); // to see outputs
 }
@@ -261,7 +277,7 @@ TEST_F(replicationTest, alternationTable) {
  * @return 0 if success
  */
 int main(int argc, char **argv) {
-	char rep_policy[] = "ARGO_REPLICATION_POLICY=2";
+	char rep_policy[] = "ARGO_REPLICATION_POLICY=1";
 	char ec_frag[] = "ARGO_REPLICATION_DATA_FRAGMENTS=3";
 	putenv(rep_policy);
 	putenv(ec_frag);
