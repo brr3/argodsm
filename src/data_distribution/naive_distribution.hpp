@@ -84,7 +84,21 @@ namespace argo {
 						return local_offset(ptr);
 					}
 					else if (env::replication_policy() == 2) {
-						std::size_t parity_page_number = local_offset(ptr) / (data_distribution::granularity * env::replication_data_fragments());
+						std::size_t a = nodes, b = env::replication_data_fragments(), r = 0;
+						std::size_t lcm = 0;
+						/* Find gcd of nodes and fragments */
+						while (b != 0) {
+							r = a % b;
+							a = b;
+							b = r;
+						}
+						/* Calculate lcm of nodes and fragments */
+						lcm = nodes * env::replication_data_fragments() / a;
+
+						std::size_t local_page_number = local_offset(ptr) / data_distribution::granularity;
+						std::size_t cyclical_page_number = homenode(ptr) + (local_page_number * nodes);
+						//std::size_t parity_page_number = local_offset(ptr) / (data_distribution::granularity * env::replication_data_fragments());
+						std::size_t parity_page_number = cyclical_page_number / lcm;
 						return parity_page_number * data_distribution::granularity;
 					}
 					return invalid_offset;

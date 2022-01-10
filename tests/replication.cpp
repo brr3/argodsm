@@ -26,7 +26,7 @@ using global_uint = typename argo::data_distribution::global_ptr<unsigned>;
 using global_intptr = typename argo::data_distribution::global_ptr<int *>;
 
 /** @brief ArgoDSM memory size */
-constexpr std::size_t size = 1 << 24; // 16MB
+constexpr std::size_t size = 1 << 16; // 16MB
 /** @brief ArgoDSM cache size */
 constexpr std::size_t cache_size = size;
 
@@ -194,7 +194,7 @@ TEST_F(replicationTest, arrayEC) {
 	for (std::size_t i = 0; i < array_size; i++) {
 		count += receiver[i];
 		//count2 += array[i]^prev_val_array[i];
-		count2 += 1;
+		count2 += array[2];
 	}
 	ASSERT_EQ(count, count2);
 
@@ -253,7 +253,7 @@ TEST_F(replicationTest, nodeKillRebuildCR) {
  * @brief Test that the node alternation table is working
  */
 TEST_F(replicationTest, alternationTable) {
-	if (argo::node_id() != 0 || argo_number_of_nodes() == 1 || argo::env::replication_policy() != 5) {
+	if (argo::node_id() != 0 || argo_number_of_nodes() == 1 || argo::env::replication_policy() != 999) {
 		return;
 	}
 
