@@ -220,7 +220,7 @@ TEST_F(replicationTest, nodeKillRebuildCR) {
 
 	argo::barrier();
 	argo::backend::test_interface_rebuild(0);
-	*val += 1;
+	printf("%c\n", *val);// += 1;
 	argo::barrier();
 
 	// kill_node(argo_get_homenode(val));

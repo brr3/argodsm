@@ -114,8 +114,8 @@ typedef struct node_alternation_table {
 	char* alter_globalData;
 	/** @brief new MPI window. Initialized to NULL. Delay assignment to use time. */
 	MPI_Win alter_globalDataWindow;
-	/** @brief flag to create the window. Need this in case of recreating windows. */
-	bool refresh_globalDataWindow;
+	/** @brief flag to indicate a just-finished recovery. May trigger local updates. */
+	bool just_recovered;
 	/** @brief altered replicated node id. Initialized to the record's home id. */
 	argo::node_id_t alter_repl_id;
 	/** @brief new replData ptr (address on alter node). Initialized to NULL. */
@@ -407,10 +407,10 @@ void argo_test_interface_rebuild(argo::node_id_t dead_node);
 
 /* CSPext: Create or re-create globalDataWindow */
 /**
- * @brief Check flag in the table and update MPI window.
+ * @brief Check flag in the table, update MPI windows, update skipped repl pages.
  * @param tbl Pointer to table.
  * */
-void node_alter_tbl_create_globalDatawindow(node_alternation_table *tbl);
+void local_check_after_recovery(node_alternation_table *tbl);
 
 /* CSPext: Create or re-create replDataWindow */
 /**

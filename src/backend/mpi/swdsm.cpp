@@ -138,8 +138,10 @@ MPI_Win* node_alter_tbl_window;
 std::size_t vm_map_offset_record;
 /** @brief size of this process replication address space */
 unsigned long size_of_replication;
-/** @brief Whether to use replication or not */
+/** @brief (local) Whether to use replication or not */
 bool useReplication;
+/** @brief (local) Record of pages with no repl (for EC + redirect) */
+bool* no_repl_page;
 
 /*First-Touch policy*/
 /** @brief  Holds the owner and backing offset of a page */
@@ -729,7 +731,7 @@ void load_cache_entry(std::size_t aligned_access_offset) {
 	/* CSPext: Add a branch here to check if the home node is down */
 	if (load_node != home_node) {
 		/* CSP: load_node points to alternative node, need to use different window */
-		node_alter_tbl_create_globalDatawindow(&(node_alter_tbl[home_node]));
+		local_check_after_recovery(&(node_alter_tbl[home_node]));
 		if (load_node == -1) {
 			/* CSP: using EC & redirect. Just go to repl page */
 			load_node = get_replication_node(aligned_access_offset);
@@ -951,6 +953,13 @@ void argo_initialize(std::size_t argo_size, std::size_t cache_size){
 			size_of_replication = ((size_of_replication / pagesize) + 1) * pagesize; // align with pagesize
 		}
 	}
+	// CSPext: initialize a table for pages that has no repl (for EC + redirect)
+	no_repl_page = (bool *)malloc(sizeof(bool) * (size_of_all / pagesize) + 1);
+	for (i = 0; (unsigned long)i < (size_of_all / pagesize) + 1; ++i) {
+		no_repl_page[i] = false;
+	}
+	
+
 	sig::signal_handler<SIGSEGV>::install_argo_handler(&handler);
 
 	unsigned long cacheControlSize = sizeof(control_data)*cachesize;
@@ -1140,7 +1149,7 @@ void argo_initialize(std::size_t argo_size, std::size_t cache_size){
 			}
 
 			// CSP: a flag to create an globalDataWindow
-			node_alter_tbl[i].refresh_globalDataWindow = false;
+			node_alter_tbl[i].just_recovered = false;
 			node_alter_tbl[i].refresh_replDataWindow = false;
 
 			// CSP: initialize recovery blocker lock
@@ -1387,36 +1396,42 @@ void storepageDIFF(unsigned long index, unsigned long addr){
 	MPI_Win real_replDataWindow = NULL; // CSP: Init later
 	argo::node_id_t real_home_id = homenode; // CSP: May change later
 	argo::node_id_t real_repl_id = 0; // CSP: Init later
+	/* CSP:
+	 * For any operation on a window initialized by MPI_Win_create_dynamic(),
+	 *  always set the target_disp as the true virtual addr on the origin node.
+	 * We use dynamic windows under recovery policy 1; in that case these
+	 *  offsets will have an increment (see below).
+	 * Or if we use EC + redirect, we'll need look for a different offset.
+	 * */
+	size_t real_home_offset = offset;
+	size_t real_repl_offset = repl_offset;
 	
 	/* CSPext: initialize repl related vars only if useReplication */
 	if (useReplication) {
 		repl_node = get_replication_node(addr);
 		repl_offset = get_replication_offset(addr);
+		real_repl_offset = repl_offset;
 		real_replDataWindow = replDataWindow[repl_node];
 		real_home_id = node_alter_tbl[homenode].alter_home_id;
 		real_repl_id = node_alter_tbl[repl_node].alter_repl_id;
-	}
+		
+		/* CSPext: special check: with EC + redirect, be careful about repl pages */
+		if (env::replication_policy() == 2 
+				&& env::replication_recovery_policy() == 0) {
+			if (no_repl_page[addr / size_of_all]) {
+				real_repl_id = -1;	// skip repl writing of this page
+			}
+		}
 
-	/* CSP:
-	 * For any operation on a window initialized by MPI_Win_create_dynamic(),
-	 *  always set the target_disp as the true virtual addr on the origin node.
-	 * We use dynamic windows under recovery policy 1; in that case they will 
-	 *  no longer be 0 (see below).
-	 * */
-	MPI_Aint gdata_offset_inc = 0;
-	MPI_Aint rdata_offset_inc = 0;
-
-	if (useReplication) {
-		/* CSPext: Check if the target node is down */
-		if (real_home_id != homenode) {
-			/* CSP: a different alter_home_id value indicates old home_id is dead */
+		if (real_home_id != homenode) { 
+			/* CSP: home node is down*/
 
 			/* CSP: this function below fixes the datawindow and resets refresh flag.
 			 * This is because sometimes (policy 0) the window has to be set locally;
 			 *  the remote node writing the node alternation table did not 
 			 *  know the value of the window.
 			 * */
-			node_alter_tbl_create_globalDatawindow(&(node_alter_tbl[homenode]));
+			local_check_after_recovery(&(node_alter_tbl[homenode]));
 			real_globalDataWindow = node_alter_tbl[homenode].alter_globalDataWindow;
 			if (env::replication_recovery_policy() == 1) {
 				/* CSP: Under recovery policy 1 (rebuild), we use dynamic windows.
@@ -1426,7 +1441,7 @@ void storepageDIFF(unsigned long index, unsigned long addr){
 				 *  start of the memory area pointed to by the window on target node.
 				 * */
 				// CSP TODO: Use MPI_Get_address on origin node instead of casting to MPI_Aint!
-				gdata_offset_inc = (MPI_Aint)node_alter_tbl[homenode].alter_globalData;
+				real_home_offset =+ (size_t)node_alter_tbl[homenode].alter_globalData;
 			} else if (env::replication_recovery_policy() == 0) {	
 				/* CSP: Under recovery policy 0 (redirect), two nodes no longer have repl:
 				 * 	1. the dead node, on which the repl area is lost (id set to -1);
@@ -1437,14 +1452,21 @@ void storepageDIFF(unsigned long index, unsigned long addr){
 				 *  by setting real_repl_id to -1 --indicating it's not writable.
 				 * */
 				real_repl_id = -1;
+				if (env::replication_policy() == 2) {
+					/* CSP: EC + rebuilding, have to search for target page */
+					real_home_id = get_replication_node(addr);
+					real_home_offset = get_replication_offset(addr);
+				}
 			}
 		}
 		if (real_repl_id != repl_node && real_repl_id >= 0) {
-			/* CSP: a different alter_repl_id value indicates old repl_id is dead */
-			node_alter_tbl_create_replDatawindow(&(node_alter_tbl[repl_node]));
+			/* CSP: a different alter_repl_id value indicates old repl_id is dead;
+			 *  or, real_repl_id == -1 indicates writing repl data is skipped 
+			 * */
+			//node_alter_tbl_create_replDatawindow(&(node_alter_tbl[repl_node]));
 			real_replDataWindow = node_alter_tbl[repl_node].alter_replDataWindow;
 			if (env::replication_recovery_policy() == 1) {
-				rdata_offset_inc = (MPI_Aint)node_alter_tbl[repl_node].alter_replData;
+				real_repl_offset = (size_t)node_alter_tbl[repl_node].alter_replData;
 			}
 		}
 	}
@@ -1479,15 +1501,15 @@ void storepageDIFF(unsigned long index, unsigned long addr){
 		else{
 			if(cnt > 0){
 				//fprintf(stderr, "%d: writing to %d in store to %p\n", argo_get_nid(), real_home_id, real_globalDataWindow);
-				MPI_Put(&real[i-cnt], cnt, MPI_BYTE, real_home_id, gdata_offset_inc + offset+(i-cnt), cnt, MPI_BYTE, real_globalDataWindow);
+				MPI_Put(&real[i-cnt], cnt, MPI_BYTE, real_home_id, real_home_offset+(i-cnt), cnt, MPI_BYTE, real_globalDataWindow);
 				//fprintf(stderr, "%d: finished one writing in store\n", argo_get_nid());
 				// CSPext: Update page on repl node
 				if (useReplication) {
 					if (env::replication_policy() == 1 && real_repl_id >= 0) {
-						MPI_Put(&real[i-cnt], cnt, MPI_BYTE, real_repl_id, rdata_offset_inc + repl_offset+(i-cnt), cnt, MPI_BYTE, real_replDataWindow);
+						MPI_Put(&real[i-cnt], cnt, MPI_BYTE, real_repl_id, real_repl_offset+(i-cnt), cnt, MPI_BYTE, real_replDataWindow);
 					}
 					else if (env::replication_policy() == 2 && real_repl_id >= 0) {
-						MPI_Accumulate(&real[i-cnt], cnt, MPI_BYTE, real_repl_id, rdata_offset_inc + repl_offset+(i-cnt), cnt, MPI_BYTE, MPI_BXOR, real_replDataWindow);
+						MPI_Accumulate(&real[i-cnt], cnt, MPI_BYTE, real_repl_id, real_repl_offset+(i-cnt), cnt, MPI_BYTE, MPI_BXOR, real_replDataWindow);
 					}
 				}
 				cnt = 0;
@@ -1495,14 +1517,14 @@ void storepageDIFF(unsigned long index, unsigned long addr){
 		}
 	}
 	if(cnt > 0){
-		MPI_Put(&real[i-cnt], cnt, MPI_BYTE, real_home_id, gdata_offset_inc + offset+(i-cnt), cnt, MPI_BYTE, real_globalDataWindow);
+		MPI_Put(&real[i-cnt], cnt, MPI_BYTE, real_home_id, real_home_offset+(i-cnt), cnt, MPI_BYTE, real_globalDataWindow);
 		// CSPext: Update page on repl node
 		if (useReplication) {		
 			if (env::replication_policy() == 1 && real_repl_id >= 0) {
-				MPI_Put(&real[i-cnt], cnt, MPI_BYTE, real_repl_id, rdata_offset_inc + repl_offset+(i-cnt), cnt, MPI_BYTE, real_replDataWindow);
+				MPI_Put(&real[i-cnt], cnt, MPI_BYTE, real_repl_id, real_repl_offset+(i-cnt), cnt, MPI_BYTE, real_replDataWindow);
 			}
 			else if (env::replication_policy() == 2 && real_repl_id >= 0) {
-				MPI_Accumulate(&real[i-cnt], cnt, MPI_BYTE, real_repl_id, rdata_offset_inc + repl_offset+(i-cnt), cnt, MPI_BYTE, MPI_BXOR, real_replDataWindow);
+				MPI_Accumulate(&real[i-cnt], cnt, MPI_BYTE, real_repl_id, real_repl_offset+(i-cnt), cnt, MPI_BYTE, MPI_BXOR, real_replDataWindow);
 			}
 		}
 	}
@@ -1575,8 +1597,8 @@ void lost_node_data_recovery(argo::node_id_t dead_node) {
 			= (char *)(&(node_alter_tbl[dead_node].alter_globalData)) - tbl_base_addr; 
 	//const size_t alter_gWindow_offset
 	//		= (char *)(&(node_alter_tbl[dead_node].alter_globalDataWindow)) - tbl_base_addr; 
-	const size_t refresh_gWindow_offset
-			= (char *)(&(node_alter_tbl[dead_node].refresh_globalDataWindow)) - tbl_base_addr; 
+	const size_t just_recovered_offset
+			= (char *)(&(node_alter_tbl[dead_node].just_recovered)) - tbl_base_addr; 
 	const size_t alter_rid_offset
 			= (char *)(&(node_alter_tbl[dead_node].alter_repl_id)) - tbl_base_addr; 
 	const size_t alter_rdata_offset
@@ -1625,7 +1647,7 @@ void lost_node_data_recovery(argo::node_id_t dead_node) {
 		MPI_Win_lock(MPI_LOCK_EXCLUSIVE, argo_get_nid(), 0, 
 				node_alter_tbl_window[dead_node]);
 		MPI_Get(&finished_work, 1, MPI_C_BOOL, argo_get_nid(), 
-				refresh_gWindow_offset,	1, MPI_C_BOOL, node_alter_tbl_window[dead_node]);
+				just_recovered_offset,	1, MPI_C_BOOL, node_alter_tbl_window[dead_node]);
 		MPI_Win_unlock(argo_get_nid(), node_alter_tbl_window[dead_node]);
 
 		if (!finished_work) {
@@ -1642,7 +1664,7 @@ void lost_node_data_recovery(argo::node_id_t dead_node) {
 				temp_tbl.alter_home_id = argo_get_nid();
 				temp_tbl.alter_globalData 
 						= static_cast<char*>(vm::allocate_mappable(pagesize, size_of_chunk));
-				temp_tbl.refresh_globalDataWindow = true;
+				temp_tbl.just_recovered = true;
 				temp_tbl.alter_repl_id = argo_get_nid();
 				temp_tbl.alter_replData 
 						= static_cast<char*>(vm::allocate_mappable(pagesize, size_of_chunk));
@@ -1696,8 +1718,8 @@ void lost_node_data_recovery(argo::node_id_t dead_node) {
 						MPI_Put(&(temp_tbl.alter_globalData), sizeof(char*), MPI_BYTE, i, 
 								alter_gdata_offset, sizeof(char*), 
 								MPI_BYTE, node_alter_tbl_window[dead_node]);
-						MPI_Put(&(temp_tbl.refresh_globalDataWindow), sizeof(char*), MPI_BYTE, i, 
-								refresh_gWindow_offset, sizeof(char*), 
+						MPI_Put(&(temp_tbl.just_recovered), sizeof(char*), MPI_BYTE, i, 
+								just_recovered_offset, sizeof(char*), 
 								MPI_BYTE, node_alter_tbl_window[dead_node]);
 						MPI_Put(&(temp_tbl.alter_repl_id), sizeof(argo::node_id_t), MPI_BYTE, i, 
 								alter_rid_offset, sizeof(argo::node_id_t), 
@@ -1718,22 +1740,22 @@ void lost_node_data_recovery(argo::node_id_t dead_node) {
 
 				if (env::replication_policy() == 1) { // complete replication
 					temp_tbl.alter_home_id = repl_node;	// write to repl node
-					temp_tbl.refresh_globalDataWindow = true; // update MPI window locally
+					temp_tbl.just_recovered = true; // update MPI window locally
 					temp_tbl.alter_repl_id = -1; // skip writing repl data
 
 					// Update locally
 					node_alter_tbl[dead_node].alter_home_id = repl_node;
-					node_alter_tbl[dead_node].refresh_globalDataWindow = true;
+					node_alter_tbl[dead_node].just_recovered = true;
 					node_alter_tbl[dead_node].alter_repl_id = -1;
 				} else if (env::replication_policy() == 2) { // EC
 					// Need to decide the destination dynamically.
 					temp_tbl.alter_home_id = -1; // a special marker
-					temp_tbl.refresh_globalDataWindow = true; // update MPI window locally
+					temp_tbl.just_recovered = true; // update MPI window locally
 					temp_tbl.alter_repl_id = -1; // skip writing repl data
 
 					// Update locally
 					node_alter_tbl[dead_node].alter_home_id = -1;
-					node_alter_tbl[dead_node].refresh_globalDataWindow = true;
+					node_alter_tbl[dead_node].just_recovered = true;
 					node_alter_tbl[dead_node].alter_repl_id = -1;
 				}
 
@@ -1807,9 +1829,9 @@ void lost_node_data_recovery(argo::node_id_t dead_node) {
 								sizeof(argo::node_id_t), MPI_BYTE, i, 
 								alter_hid_offset, sizeof(argo::node_id_t), 
 								MPI_BYTE, node_alter_tbl_window[dead_node]);
-						MPI_Put(&(temp_tbl.refresh_globalDataWindow),
+						MPI_Put(&(temp_tbl.just_recovered),
 								sizeof(char*), MPI_BYTE, i, 
-								refresh_gWindow_offset, sizeof(char*), 
+								just_recovered_offset, sizeof(char*), 
 								MPI_BYTE, node_alter_tbl_window[dead_node]);
 						MPI_Put(&(temp_tbl.alter_repl_id), 
 								sizeof(argo::node_id_t), MPI_BYTE, i, 
@@ -1836,7 +1858,7 @@ void lost_node_data_recovery(argo::node_id_t dead_node) {
 					(node_alter_tbl[dead_node].alter_home_id),
 					(node_alter_tbl[dead_node].alter_globalData),
 					(node_alter_tbl[dead_node].alter_globalDataWindow),
-					(node_alter_tbl[dead_node].refresh_globalDataWindow),
+					(node_alter_tbl[dead_node].just_recovered),
 					(node_alter_tbl[dead_node].alter_repl_id),
 					(node_alter_tbl[dead_node].alter_replData),
 					(node_alter_tbl[dead_node].alter_replDataWindow),
@@ -1846,7 +1868,7 @@ void lost_node_data_recovery(argo::node_id_t dead_node) {
 		while (!finished_work) {
 			MPI_Win_lock(MPI_LOCK_EXCLUSIVE, argo_get_nid(), 0, node_alter_tbl_window[dead_node]);
 			MPI_Get(&finished_work, 1, MPI_C_BOOL, argo_get_nid(),
-				refresh_gWindow_offset,	1, MPI_C_BOOL, node_alter_tbl_window[dead_node]);
+				just_recovered_offset,	1, MPI_C_BOOL, node_alter_tbl_window[dead_node]);
 			MPI_Win_unlock(argo_get_nid(), node_alter_tbl_window[dead_node]);
 		}
 		fprintf(stderr, "%d: ----after: hid: %d, gData: %p, gwindow: %p, grefresh: %d, rid: %d, rdata: %p, rwindow: %p, rrefresh: %d, recovering: %d\n", 
@@ -1854,7 +1876,7 @@ void lost_node_data_recovery(argo::node_id_t dead_node) {
 					(node_alter_tbl[dead_node].alter_home_id),
 					(node_alter_tbl[dead_node].alter_globalData),
 					(node_alter_tbl[dead_node].alter_globalDataWindow),
-					(node_alter_tbl[dead_node].refresh_globalDataWindow),
+					(node_alter_tbl[dead_node].just_recovered),
 					(node_alter_tbl[dead_node].alter_repl_id),
 					(node_alter_tbl[dead_node].alter_replData),
 					(node_alter_tbl[dead_node].alter_replDataWindow),
@@ -1873,22 +1895,63 @@ void argo_test_interface_rebuild(argo::node_id_t dead_node) {
 	lost_node_data_recovery(dead_node);
 }
 
-/* CSP TODO: Delete this */
 /* CSPext: Create or re-create replDataWindow */
-void node_alter_tbl_create_globalDatawindow(node_alternation_table *tbl) {
-	if (tbl->refresh_globalDataWindow) {
+void local_check_after_recovery(node_alternation_table *tbl) {
+	if (tbl->just_recovered) {
+		if (env::replication_policy() == 2 
+						&& env::replication_recovery_policy() == 0) {
+			// EC + rebuilding: update no_repl_page
+			std::size_t page_addr = 0; // page on dead_node
+			std::size_t check_addr = 0;	// page to check (if it has the same repl page)
+			std::size_t addr_max = argo::virtual_memory::size();
+			std::size_t page_repl_offset;
+			argo::node_id_t page_repl_id, check_home_id;
+			/* CSP: look through all pages to find those on this node
+			 * TODO: this looks at every page, wherever they are and 
+			 *  whether it is been utilized. Any optimizations?
+			 * */
+			for (page_addr = 0; page_addr < addr_max; page_addr += pagesize) {
+				if (peek_homenode(page_addr) != argo_get_nid()) {
+					continue; // skip if page_addr not on this node
+				}
+
+				page_repl_id = get_replication_node(page_addr); // node id of repl page
+				page_repl_offset = get_replication_offset(page_addr); // repl page offset on that node
+				if (no_repl_page[page_repl_offset / size_of_all]) {
+					// already recorded
+					continue;
+				}
+						
+				// For each page on current node, 
+				//  check if any of its repl page is utilized as alternative
+				for (check_addr = 0; check_addr < addr_max; check_addr += pagesize) {
+					check_home_id = peek_homenode(check_addr);
+					if (check_addr == page_addr 
+							|| node_alter_tbl[check_home_id].alter_home_id != -1) {
+						// node is till running
+						continue;
+					}
+
+					if (get_replication_node(check_addr) == page_repl_id
+							&& get_replication_offset(check_addr) == page_repl_offset) {
+						// This page (starting from check_addr) writes to the same repl page
+						no_repl_page[page_repl_offset / size_of_all] = true;
+					}
+				}
+			} // for (page_addr = 0; page_addr < addr_max)
+		}
 		if (env::replication_recovery_policy() == 0) {
 			// No need to do this to repl data
 			tbl->alter_globalDataWindow = replDataWindow[tbl->alter_home_id];
 		}
-		tbl->refresh_globalDataWindow = false;
+		tbl->just_recovered = false;
 	}
 }
 
 /* CSPext: Create or re-create replDataWindow */
-void node_alter_tbl_create_replDatawindow(node_alternation_table *tbl) {
+void node_alter_tbl_rdata_local_response(node_alternation_table *tbl) {
 	if (tbl->refresh_replDataWindow) {
-		tbl->refresh_globalDataWindow = false;
+		tbl->refresh_replDataWindow = false;
 	}
 }
 
