@@ -1813,9 +1813,6 @@ void lost_node_data_recovery(argo::node_id_t dead_node) {
 						for (check_addr = 0; check_addr < addr_max; check_addr += pagesize) {
 							check_home_id = peek_homenode(check_addr);
 							check_offset = peek_offset(check_addr);
-							//if (page_addr == 4194304) {
-							//	fprintf(stderr, "%d: %lu on dead node; checking %lu\n", argo_get_nid(), page_addr, check_addr);
-							//}
 							if (check_addr != page_addr
 									&& get_replication_node(check_addr) == page_repl_id
 									&& get_replication_offset(check_addr) == page_repl_offset) {
