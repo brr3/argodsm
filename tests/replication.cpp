@@ -10,6 +10,7 @@
 #include "argo.hpp"
 #include "env/env.hpp"
 #include "data_distribution/global_ptr.hpp"
+#include "virtual_memory/virtual_memory.hpp" // For using start_address and size
 
 #include "gtest/gtest.h"
 
@@ -204,7 +205,7 @@ TEST_F(replicationTest, arrayEC) {
  * @brief Test that the system can recover from a node going down using complete replication
  */
 TEST_F(replicationTest, nodeKillRebuildCR) {
-	if (argo_number_of_nodes() == 1 || argo::env::replication_policy() != 1) {
+	if (argo_number_of_nodes() == 1 || argo::env::replication_policy() != 2) {
 		return;
 	}
 
@@ -236,11 +237,21 @@ TEST_F(replicationTest, nodeKillRebuildCR) {
  * @brief Test that the node alternation table is working
  */
 TEST_F(replicationTest, alternationTable) {
-	if (argo_number_of_nodes() == 1 || argo::env::replication_policy() != 0) {
+	if (argo::node_id() != 0 || argo_number_of_nodes() == 1 || argo::env::replication_policy() != 2) {
 		return;
 	}
 
-	
+	/* Verify the repl page calculation */
+	std::size_t addr = 0;//argo::virtual_memory::start_address();
+	for (addr = 0; addr < (argo::virtual_memory::size()); addr += 4096) {
+		global_char gptr(reinterpret_cast<char*>(
+			addr + reinterpret_cast<unsigned long>(argo::virtual_memory::start_address())), false, false);
+		printf("%lu: on node %d, offset %lu; repl to %d, offset: %lu\n", 
+						addr,
+					   	gptr.peek_node(), gptr.peek_offset(),
+						gptr.get_replication_node(), gptr.get_replication_offset());
+	}
+	//ASSERT_EQ(false, true); // to see outputs
 }
 
 /**
@@ -250,7 +261,12 @@ TEST_F(replicationTest, alternationTable) {
  * @return 0 if success
  */
 int main(int argc, char **argv) {
+	char rep_policy[] = "ARGO_REPLICATION_POLICY=2";
+	char ec_frag[] = "ARGO_REPLICATION_DATA_FRAGMENTS=3";
+	putenv(rep_policy);
+	putenv(ec_frag);
 	argo::init(size, cache_size);
+	//printf("rep policy is %lu\n", argo::env::replication_policy());
 	::testing::InitGoogleTest(&argc, argv);
 	auto res = RUN_ALL_TESTS();
 	argo::finalize();
