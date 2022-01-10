@@ -734,7 +734,6 @@ void load_cache_entry(std::size_t aligned_access_offset) {
 	if (load_node != home_node) {
 		/* CSP: load_node points to alternative node, need to use different window */
 		local_check_after_recovery(&(node_alter_tbl[home_node]));
-			fprintf(stderr, "----load: Node = %d, addr = %lu, homenode = %d, load_node = %d, real_offset = %lu\n", argo_get_nid(), aligned_access_offset, home_node, load_node, real_offset);
 		if (load_node == -1) {
 			/* CSP: using EC & redirect. Just go to repl page */
 			load_node = get_replication_node(aligned_access_offset);
@@ -755,6 +754,7 @@ void load_cache_entry(std::size_t aligned_access_offset) {
 			load_node, real_offset, 
 			fetch_size, cacheblock, real_globalDataWindow);
 	MPI_Win_unlock(load_node, real_globalDataWindow);
+	//fprintf(stderr, "----load: Node = %d, addr = %lu, homenode = %d, load_node = %d, in table it's %d, real_offset = %lu\n", argo_get_nid(), aligned_access_offset, home_node, load_node, node_alter_tbl[home_node].alter_home_id, real_offset);
 
 	/* Update the cache */
 	for(std::size_t idx = start_index, p = 0; idx < end_index; idx+=CACHELINE, p+=CACHELINE){
@@ -1391,6 +1391,7 @@ void storepageDIFF(unsigned long index, unsigned long addr){
 
 	char * copy = (char *)(pagecopy + index*pagesize);
 	char * real = (char *)startAddr+addr;
+	/* CSPext: calculate diff for EC */
 	size_t drf_unit = sizeof(char);
 
 	/* CSPext: Pointer to actually used MPI windows. */
@@ -1509,14 +1510,20 @@ void storepageDIFF(unsigned long index, unsigned long addr){
 				//fprintf(stderr, "%d: writing to %d in store to %p\n", argo_get_nid(), real_home_id, real_globalDataWindow);
 				MPI_Put(&real[i-cnt], cnt, MPI_BYTE, real_home_id, real_home_offset+(i-cnt), cnt, MPI_BYTE, real_globalDataWindow);
 				//fprintf(stderr, "%d: finished one writing in store\n", argo_get_nid());
-				fprintf(stderr, "----storepagediff: Node = %d, addr = %lu, num to write = %d\n", argo_get_nid(), addr, real[i - cnt]);
+				//fprintf(stderr, "----storepagediff: Node = %d, addr = %lu, num to write = %d\n", argo_get_nid(), addr, real[i - cnt]);
 				// CSPext: Update page on repl node
 				if (useReplication) {
 					if (env::replication_policy() == 1 && real_repl_id >= 0) {
 						MPI_Put(&real[i-cnt], cnt, MPI_BYTE, real_repl_id, real_repl_offset+(i-cnt), cnt, MPI_BYTE, real_replDataWindow);
 					}
 					else if (env::replication_policy() == 2 && real_repl_id >= 0) {
-						MPI_Accumulate(&real[i-cnt], cnt, MPI_BYTE, real_repl_id, real_repl_offset+(i-cnt), cnt, MPI_BYTE, MPI_BXOR, real_replDataWindow);
+						char diff[cnt];
+						for (int k = 0; k < cnt; ++k) {
+							diff[k] = copy[i - cnt + k] ^ real[i - cnt + k];
+							//fprintf(stderr, "----%d diff: copy[%d] = 0x%x, real[%d] = 0x%x, diff[%d] = 0x%x = 0x%x\n", argo_get_nid(), i - cnt + k, copy[i - cnt + k], i - cnt + k, real[i - cnt + k], k, diff[k], copy[i - cnt + k] ^ real[i - cnt + k]);
+						}
+						//MPI_Accumulate(&real[i-cnt], cnt, MPI_BYTE, real_repl_id, real_repl_offset+(i-cnt), cnt, MPI_BYTE, MPI_BXOR, real_replDataWindow);
+						MPI_Accumulate(diff, cnt, MPI_BYTE, real_repl_id, real_repl_offset+(i-cnt), cnt, MPI_BYTE, MPI_BXOR, real_replDataWindow);
 					}
 				}
 				cnt = 0;
@@ -1532,7 +1539,13 @@ void storepageDIFF(unsigned long index, unsigned long addr){
 				MPI_Put(&real[i-cnt], cnt, MPI_BYTE, real_repl_id, real_repl_offset+(i-cnt), cnt, MPI_BYTE, real_replDataWindow);
 			}
 			else if (env::replication_policy() == 2 && real_repl_id >= 0) {
-				MPI_Accumulate(&real[i-cnt], cnt, MPI_BYTE, real_repl_id, real_repl_offset+(i-cnt), cnt, MPI_BYTE, MPI_BXOR, real_replDataWindow);
+				char diff[cnt];
+				for (int k = 0; k < cnt; ++k) {
+					diff[k] = copy[i - cnt + k] ^ real[i - cnt + k];
+					//fprintf(stderr, "----%d diff: copy[%d] = 0x%x, real[%d] = 0x%x, diff[%d] = 0x%x\n", argo_get_nid(), i - cnt + k, copy[i - cnt + k], i - cnt + k, real[i - cnt + k], k, diff[k]);
+				}
+				//MPI_Accumulate(&real[i-cnt], cnt, MPI_BYTE, real_repl_id, real_repl_offset+(i-cnt), cnt, MPI_BYTE, MPI_BXOR, real_replDataWindow);
+				MPI_Accumulate(diff, cnt, MPI_BYTE, real_repl_id, real_repl_offset+(i-cnt), cnt, MPI_BYTE, MPI_BXOR, real_replDataWindow);
 			}
 		}
 	}
@@ -1812,12 +1825,13 @@ void lost_node_data_recovery(argo::node_id_t dead_node) {
 										check_home_id, check_offset, pagesize, 
 										MPI_BYTE, globalDataWindow[check_home_id]);
 								MPI_Win_unlock(check_home_id, globalDataWindow[check_home_id]);
-	
+
 								MPI_Win_lock(MPI_LOCK_EXCLUSIVE, page_repl_id, 0, replDataWindow[page_repl_id]);
-								MPI_Accumulate(page_buffer, page_size, MPI_BYTE, 
-										page_repl_id, page_repl_offset, page_size, 
+								MPI_Accumulate(page_buffer, pagesize, MPI_BYTE, 
+										page_repl_id, page_repl_offset, pagesize, 
 										MPI_BYTE, MPI_BXOR, replDataWindow[page_repl_id]);
 								MPI_Win_unlock(page_repl_id, replDataWindow[page_repl_id]);
+
 							}
 						}
 					} // for (page_addr = 0; page_addr < addr_max)
@@ -1864,36 +1878,36 @@ void lost_node_data_recovery(argo::node_id_t dead_node) {
 		MPI_Win_unlock(repl_node, node_alter_tbl_window[dead_node]);
 	} else {
 		/* CSP: Use MPI to access local mem because it may be updated by MPI */
-		fprintf(stderr, "%d: ----before: hid: %d, gData: %p, gwindow: %p, grefresh: %d, rid: %d, rdata: %p, rwindow: %p, rrefresh: %d, rebuild: %d\n", 
-					argo_get_nid(),
-					(node_alter_tbl[dead_node].alter_home_id),
-					(node_alter_tbl[dead_node].alter_globalData),
-					(node_alter_tbl[dead_node].alter_globalDataWindow),
-					(node_alter_tbl[dead_node].just_recovered),
-					(node_alter_tbl[dead_node].alter_repl_id),
-					(node_alter_tbl[dead_node].alter_replData),
-					(node_alter_tbl[dead_node].alter_replDataWindow),
-					(node_alter_tbl[dead_node].refresh_replDataWindow),
-					(node_alter_tbl[dead_node].recovering)
-		);
+		//fprintf(stderr, "%d: ----before: hid: %d, gData: %p, gwindow: %p, grefresh: %d, rid: %d, rdata: %p, rwindow: %p, rrefresh: %d, rebuild: %d\n", 
+		//			argo_get_nid(),
+		//			(node_alter_tbl[dead_node].alter_home_id),
+		//			(node_alter_tbl[dead_node].alter_globalData),
+		//			(node_alter_tbl[dead_node].alter_globalDataWindow),
+		//			(node_alter_tbl[dead_node].just_recovered),
+		//			(node_alter_tbl[dead_node].alter_repl_id),
+		//			(node_alter_tbl[dead_node].alter_replData),
+		//			(node_alter_tbl[dead_node].alter_replDataWindow),
+		//			(node_alter_tbl[dead_node].refresh_replDataWindow),
+		//			(node_alter_tbl[dead_node].recovering)
+		//);
 		while (!finished_work) {
 			MPI_Win_lock(MPI_LOCK_EXCLUSIVE, argo_get_nid(), 0, node_alter_tbl_window[dead_node]);
 			MPI_Get(&finished_work, 1, MPI_C_BOOL, argo_get_nid(),
 				just_recovered_offset,	1, MPI_C_BOOL, node_alter_tbl_window[dead_node]);
 			MPI_Win_unlock(argo_get_nid(), node_alter_tbl_window[dead_node]);
 		}
-		fprintf(stderr, "%d: ----after: hid: %d, gData: %p, gwindow: %p, grefresh: %d, rid: %d, rdata: %p, rwindow: %p, rrefresh: %d, recovering: %d\n", 
-					argo_get_nid(),
-					(node_alter_tbl[dead_node].alter_home_id),
-					(node_alter_tbl[dead_node].alter_globalData),
-					(node_alter_tbl[dead_node].alter_globalDataWindow),
-					(node_alter_tbl[dead_node].just_recovered),
-					(node_alter_tbl[dead_node].alter_repl_id),
-					(node_alter_tbl[dead_node].alter_replData),
-					(node_alter_tbl[dead_node].alter_replDataWindow),
-					(node_alter_tbl[dead_node].refresh_replDataWindow),
-					(node_alter_tbl[dead_node].recovering)
-		);
+		//fprintf(stderr, "%d: ----after: hid: %d, gData: %p, gwindow: %p, grefresh: %d, rid: %d, rdata: %p, rwindow: %p, rrefresh: %d, recovering: %d\n", 
+		//			argo_get_nid(),
+		//			(node_alter_tbl[dead_node].alter_home_id),
+		//			(node_alter_tbl[dead_node].alter_globalData),
+		//			(node_alter_tbl[dead_node].alter_globalDataWindow),
+		//			(node_alter_tbl[dead_node].just_recovered),
+		//			(node_alter_tbl[dead_node].alter_repl_id),
+		//			(node_alter_tbl[dead_node].alter_replData),
+		//			(node_alter_tbl[dead_node].alter_replDataWindow),
+		//			(node_alter_tbl[dead_node].refresh_replDataWindow),
+		//			(node_alter_tbl[dead_node].recovering)
+		//);
 	}
 }
 
