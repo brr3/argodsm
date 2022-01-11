@@ -230,7 +230,7 @@ TEST_F(replicationTest, nodeKillRebuild) {
 	}
 
 	if (argo_get_homenode(val) != argo::node_id()) {
-		printf("Looking at data on node %d: ", argo::node_id());
+		//printf("Looking at data on node %d: ", argo::node_id());
 		ASSERT_EQ((char)(copy + argo_number_of_nodes()), *val); // val should point to the replicated node now
 	}
 }
@@ -243,7 +243,6 @@ TEST_F(replicationTest, nodeKillRebuild) {
  */
 int main(int argc, char **argv) {
 	argo::init(size, cache_size);
-	//printf("rep policy is %lu\n", argo::env::replication_policy());
 	::testing::InitGoogleTest(&argc, argv);
 	auto res = RUN_ALL_TESTS();
 	argo::finalize();
