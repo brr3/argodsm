@@ -253,7 +253,7 @@ TEST_F(replicationTest, nodeKillRebuildCR) {
  * @brief Test that the node alternation table is working
  */
 TEST_F(replicationTest, alternationTable) {
-	if (argo::node_id() != 0 || argo_number_of_nodes() == 1 || argo::env::replication_policy() != 999) {
+	if (argo::node_id() != 0 || argo_number_of_nodes() == 1 || argo::env::replication_policy() != 2) {
 		return;
 	}
 
@@ -280,7 +280,7 @@ TEST_F(replicationTest, alternationTable) {
  */
 int main(int argc, char **argv) {
 	char rep_policy[] = "ARGO_REPLICATION_POLICY=2";
-	char ec_frag[] = "ARGO_REPLICATION_DATA_FRAGMENTS=3";
+	char ec_frag[] = "ARGO_REPLICATION_DATA_FRAGMENTS=2";
 	putenv(rep_policy);
 	putenv(ec_frag);
 	argo::init(size, cache_size);
