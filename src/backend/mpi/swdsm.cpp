@@ -955,6 +955,9 @@ void argo_initialize(std::size_t argo_size, std::size_t cache_size){
 			printf("ERASURE CODING - data fragments: %lu, parity fragments: %lu\n", env::replication_data_fragments(), env::replication_parity_fragments());
 			size_of_replication = size_of_chunk / (env::replication_data_fragments());
 			size_of_replication = ((size_of_replication / pagesize) + 1) * pagesize; // align with pagesize
+			if (argo_get_nodes() % env::replication_data_fragments() == 0) {
+				size_of_replication *= env::replication_data_fragments();
+			}
 		}
 	}
 	// CSPext: initialize a table for pages that has no repl (for EC + redirect)
