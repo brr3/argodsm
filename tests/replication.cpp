@@ -10,6 +10,7 @@
 #include "argo.hpp"
 #include "env/env.hpp"
 #include "data_distribution/global_ptr.hpp"
+#include "virtual_memory/virtual_memory.hpp" // For using start_address and size
 
 #include "gtest/gtest.h"
 
@@ -25,7 +26,7 @@ using global_uint = typename argo::data_distribution::global_ptr<unsigned>;
 using global_intptr = typename argo::data_distribution::global_ptr<int *>;
 
 /** @brief ArgoDSM memory size */
-constexpr std::size_t size = 1 << 24; // 16MB
+constexpr std::size_t size = 1 << 16; // 16MB
 /** @brief ArgoDSM cache size */
 constexpr std::size_t cache_size = size;
 
@@ -156,7 +157,7 @@ TEST_F(replicationTest, charEC) {
 
 	char receiver = 'z';
 	argo::backend::get_repl_data(val, (void *)(&receiver), 1);
-	ASSERT_EQ(*val^prev_repl_val, receiver);
+	ASSERT_EQ(prev_repl_val + 1, receiver);
 }
 
 TEST_F(replicationTest, arrayEC) {
@@ -192,7 +193,8 @@ TEST_F(replicationTest, arrayEC) {
 	unsigned long count2 = 0;
 	for (std::size_t i = 0; i < array_size; i++) {
 		count += receiver[i];
-		count2 += array[i]^prev_val_array[i];
+		//count2 += array[i]^prev_val_array[i];
+		count2 += array[2];
 	}
 	ASSERT_EQ(count, count2);
 
@@ -201,10 +203,10 @@ TEST_F(replicationTest, arrayEC) {
 }
 
 /**
- * @brief Test that the system can recover from a node going down using complete replication
+ * @brief Test that the system can recover from a node going down
  */
-TEST_F(replicationTest, nodeKillRebuildCR) {
-	if (argo_number_of_nodes() == 1 || argo::env::replication_policy() != 1) {
+TEST_F(replicationTest, nodeKillRebuild) {
+	if (argo_number_of_nodes() == 1) {
 		return;
 	}
 
@@ -219,28 +221,18 @@ TEST_F(replicationTest, nodeKillRebuildCR) {
 
 	argo::barrier();
 	argo::backend::test_interface_rebuild(0);
-	// *val += 1;
-	argo::barrier();
 
-	// kill_node(argo_get_homenode(val));
-	// OR:
-	// update_alteration_table(argo_get_homenode(val));
-	// Note: The killed node will still run all the code here since it doesn't actually crash
-
-	if (argo_get_homenode(val) == argo::node_id()) {
-		ASSERT_EQ(copy, *val); // val should point to the replicated node now
-	}
-}
-
-/**
- * @brief Test that the node alternation table is working
- */
-TEST_F(replicationTest, alternationTable) {
-	if (argo_number_of_nodes() == 1 || argo::env::replication_policy() != 0) {
-		return;
+	for (int i = 0; i < argo_number_of_nodes(); i++) {
+		if (argo::node_id() == i) {
+			*val += 1;
+		}
+		argo::barrier();
 	}
 
-	
+	if (argo_get_homenode(val) != argo::node_id()) {
+		//printf("Looking at data on node %d: ", argo::node_id());
+		ASSERT_EQ((char)(copy + argo_number_of_nodes()), *val); // val should point to the replicated node now
+	}
 }
 
 /**
