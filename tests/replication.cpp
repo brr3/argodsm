@@ -203,7 +203,7 @@ TEST_F(replicationTest, arrayEC) {
 }
 
 /**
- * @brief Test that the system can recover from a node going down using complete replication
+ * @brief Test that the system can recover from a node going down
  */
 TEST_F(replicationTest, nodeKillRebuild) {
 	if (argo_number_of_nodes() == 1) {
