@@ -526,11 +526,7 @@ void load_cache_entry(std::size_t aligned_access_offset) {
 	/* CSP ext: look up alter table. Keep home_node for comparison */
 	argo::node_id_t home_node = get_homenode(aligned_access_offset);
 	argo::node_id_t load_node = home_node;
-	if (useReplication) {
-		//home_node = get_homenode(aligned_access_offset);
-		load_node = node_alter_tbl[home_node].alter_home_id;
-		//fprintf(stderr, "---%d: changing load_node: %d -> %d\n", argo_get_nid(), home_node, node_alter_tbl[home_node].alter_home_id);
-	}
+
 	const std::size_t load_offset = get_offset(aligned_access_offset);
 	/* CSP ext: use these temp values to avoid long if-else for ease of coding. */
 	MPI_Win real_globalDataWindow = globalDataWindow[home_node];
@@ -733,6 +729,11 @@ void load_cache_entry(std::size_t aligned_access_offset) {
 	/* Finally, get the cache data and store it temporarily */
 
 	/* CSPext: Add a branch here to check if the home node is down */
+	if (useReplication) {
+		//home_node = get_homenode(aligned_access_offset);
+		load_node = node_alter_tbl[home_node].alter_home_id;
+		//fprintf(stderr, "---%d: changing load_node: %d -> %d\n", argo_get_nid(), home_node, node_alter_tbl[home_node].alter_home_id);
+	}
 	if (load_node != home_node) {
 		/* CSP: load_node points to alternative node, need to use different window */
 		local_check_after_recovery(&(node_alter_tbl[home_node]));
@@ -750,12 +751,12 @@ void load_cache_entry(std::size_t aligned_access_offset) {
 			}
 		}
 	}
+	fprintf(stderr, "DEBUG_INFO: Node %d: loading page at addr 0x%lx (on homenode %d with offset 0x%lx). Actually loading from node %d, real offset = 0x%lx\n", argo_get_nid(), aligned_access_offset, home_node, load_offset, load_node, real_offset);
 	MPI_Win_lock(MPI_LOCK_SHARED, load_node , 0, real_globalDataWindow);
 	MPI_Get(temp_data.data(), fetch_size, cacheblock,
 			load_node, real_offset, 
 			fetch_size, cacheblock, real_globalDataWindow);
 	MPI_Win_unlock(load_node, real_globalDataWindow);
-	//fprintf(stderr, "----load: Node = %d, addr = %lu, homenode = %d, load_node = %d, in table it's %d, real_offset = %lx, window is %p, value just got is %d \n", argo_get_nid(), aligned_access_offset, home_node, load_node, node_alter_tbl[home_node].alter_home_id, real_offset, real_globalDataWindow, temp_data.data()[0]);
 
 	/* Update the cache */
 	for(std::size_t idx = start_index, p = 0; idx < end_index; idx+=CACHELINE, p+=CACHELINE){
@@ -1476,6 +1477,15 @@ void storepageDIFF(unsigned long index, unsigned long addr){
 			if (env::replication_recovery_policy() == 1) {
 				real_repl_offset += node_alter_tbl[repl_node].alter_replData;
 			}
+		}
+	}
+
+	fprintf(stderr, "DEBUG_INFO: Node %d: storing to page at addr 0x%lx (on homenode %d with offset 0x%lx). Actually storing to node %d, real offset = 0x%lx\n", argo_get_nid(), addr, homenode, offset, real_home_id, real_home_offset);
+	if (useReplication) {
+		if (env::replication_policy() == 1) {
+			fprintf(stderr, "DEBUG_INFO: Node %d: writing replication for page at addr 0x%lx (replication on replnode %d with offset 0x%lx). Actually writing to node %d, real offset = 0x%lx\n", argo_get_nid(), addr, repl_node, repl_offset, real_repl_id, real_repl_offset);
+		} else if (env::replication_policy() == 2) {
+			fprintf(stderr, "DEBUG_INFO：Node %d: writing parity fragment for page at addr 0x%lx (parity fragment on replnode %d with offset 0x%lx). Actually writing to node %d, real offset = 0x%lx\n", argo_get_nid(), addr, repl_node, repl_offset, real_repl_id, real_repl_offset);
 		}
 	}
 
